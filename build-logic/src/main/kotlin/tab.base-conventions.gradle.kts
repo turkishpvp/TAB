@@ -25,7 +25,8 @@ tasks {
     }
     compileJava {
         options.encoding = Charsets.UTF_8.name()
-        options.release.set(8)
+        // Convention instead of set, so modules that need a newer Java version (release(21) etc.) win over this default
+        options.release.convention(8)
         options.compilerArgs.addAll(listOf("-nowarn", "-Xlint:-unchecked", "-Xlint:-deprecation"))
     }
 }
