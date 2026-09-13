@@ -62,6 +62,17 @@ public interface MultiLineRenderer {
     void refresh(@NotNull TabPlayer owner, @NotNull TabPlayer viewer);
 
     /**
+     * Shows or hides a player's own lines to themselves. Own lines are only visible in third
+     * person view, the same way a player never sees their own vanilla nametag in first person.
+     *
+     * @param   owner
+     *          Player to show or hide own lines to
+     * @param   show
+     *          {@code true} to show the lines, {@code false} to hide them
+     */
+    void setSelfView(@NotNull TabPlayer owner, boolean show);
+
+    /**
      * Injects handlers into all online players and spawns lines of players already seen by them.
      */
     void load();

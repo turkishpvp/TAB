@@ -44,6 +44,12 @@ public class MultiLineConfiguration {
 
     @NotNull private final String disableCondition;
 
+    /** Whether players should see their own lines (visible in third person view) */
+    private final boolean showToSelf;
+
+    /** Condition a player must meet to see their own lines, empty to always show them */
+    @NotNull private final String showToSelfCondition;
+
     /**
      * Returns space between given line and the line below it.
      *
@@ -66,7 +72,8 @@ public class MultiLineConfiguration {
     @NotNull
     public static MultiLineConfiguration fromSection(@NotNull ConfigurationSection section) {
         section.checkForUnknownKey(Arrays.asList("enabled", "lines", "first-line-height", "line-spacing",
-                "custom-line-spacing", "lower-when-sneaking", "disable-condition"));
+                "custom-line-spacing", "lower-when-sneaking", "disable-condition",
+                "show-to-self", "show-to-self-condition"));
         List<String> lines = new ArrayList<>();
         for (String line : section.getStringList("lines", Arrays.asList("abovename", NAMETAG_LINE, "belowname"))) {
             String name = line.toLowerCase(Locale.US);
@@ -106,7 +113,8 @@ public class MultiLineConfiguration {
             if (!line.equals(NAMETAG_LINE)) addValidProperty(line);
         }
         return new MultiLineConfiguration(section, lines, firstLineHeight, lineSpacing, customLineSpacing,
-                section.getBoolean("lower-when-sneaking", true), section.getString("disable-condition", "%world%=disabledworld"));
+                section.getBoolean("lower-when-sneaking", true), section.getString("disable-condition", "%world%=disabledworld"),
+                section.getBoolean("show-to-self", false), section.getString("show-to-self-condition", ""));
     }
 
     private static double height(@NotNull ConfigurationSection section, @NotNull String path, double value, double min, double max) {

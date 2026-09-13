@@ -35,6 +35,9 @@ public class MultiLinePlayerData {
     @Nullable
     public volatile Layout layout;
 
+    /** Whether the player is currently shown their own lines */
+    public volatile boolean selfView;
+
     /** Whether player is in spectator gamemode */
     public volatile boolean spectator;
 

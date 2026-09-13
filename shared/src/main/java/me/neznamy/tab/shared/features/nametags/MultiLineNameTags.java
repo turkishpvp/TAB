@@ -8,10 +8,12 @@ import me.neznamy.tab.shared.TabConstants;
 import me.neznamy.tab.shared.cpu.ThreadExecutor;
 import me.neznamy.tab.shared.data.World;
 import me.neznamy.tab.shared.features.types.*;
+import me.neznamy.tab.shared.placeholders.conditions.Condition;
 import me.neznamy.tab.shared.platform.MultiLineRenderer;
 import me.neznamy.tab.shared.platform.TabPlayer;
 import me.neznamy.tab.shared.util.cache.StringToComponentCache;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -48,6 +50,10 @@ public class MultiLineNameTags extends RefreshableFeature implements JoinListene
      * @param   renderer
      *          Platform's renderer
      */
+    /** Condition for showing a player their own lines, {@code null} if the feature is off or unconditional */
+    @Nullable
+    private final Condition showToSelfCondition;
+
     public MultiLineNameTags(@NotNull MultiLineConfiguration configuration, @NotNull NameTag nameTags, @NotNull MultiLineRenderer renderer) {
         this.configuration = configuration;
         this.nameTags = nameTags;
@@ -59,6 +65,10 @@ public class MultiLineNameTags extends RefreshableFeature implements JoinListene
             // Vanilla tag is at 2.3 with belowname score 0.28 under it, start above them if vanilla tag stays
             firstLineHeight = replacesVanillaTag ? 2.34 : TAB.getInstance().getConfiguration().getConfig().getBelowname() != null ? 2.86 : 2.58;
         }
+        showToSelfCondition = configuration.isShowToSelf()
+                ? TAB.getInstance().getPlaceholderManager().getConditionManager().getByNameOrExpression(configuration.getShowToSelfCondition())
+                : null;
+        if (showToSelfCondition != null) addUsedPlaceholder(showToSelfCondition.getPlaceholderIdentifier());
         disableChecker = new DisableChecker(this, TAB.getInstance().getPlaceholderManager().getConditionManager().getByNameOrExpression(configuration.getDisableCondition()),
                 this::onDisableConditionChange, p -> p.multiLineData.disabled);
         TAB.getInstance().getFeatureManager().registerFeature(TabConstants.Feature.MULTILINE_NAMETAGS + "-Condition", disableChecker);
@@ -200,6 +210,13 @@ public class MultiLineNameTags extends RefreshableFeature implements JoinListene
         if (!Objects.equals(layout, data.layout)) {
             data.layout = layout;
             renderer.refreshOwner(player);
+        }
+        if (configuration.isShowToSelf()) {
+            boolean selfView = active && (showToSelfCondition == null || showToSelfCondition.isMet(player));
+            if (data.selfView != selfView) {
+                data.selfView = selfView;
+                renderer.setSelfView(player, selfView);
+            }
         }
         boolean hideVanilla = active && replacesVanillaTag;
         if (player.teamData.multiLineActive != hideVanilla) {

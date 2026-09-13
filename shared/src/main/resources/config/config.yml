@@ -74,6 +74,8 @@ belowname-objective:
 # "nametag" line is tagprefix + customtagname + tagsuffix and replaces vanilla nametag, remove it to keep vanilla nametag.
 multiline-nametags:
   enabled: false
+  show-to-self: false
+  show-to-self-condition: ''
   lines:
     - abovename
     - nametag

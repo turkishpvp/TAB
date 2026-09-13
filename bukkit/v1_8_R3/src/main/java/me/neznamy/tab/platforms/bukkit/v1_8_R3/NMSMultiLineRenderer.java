@@ -168,6 +168,23 @@ public class NMSMultiLineRenderer implements MultiLineRenderer {
     }
 
     @Override
+    public void setSelfView(@NotNull TabPlayer owner, boolean show) {
+        Handler handler = handler(owner);
+        if (handler == null) return;
+        int entityId = owner.multiLineData.entityId;
+        // Player entity metadata carries the sneak bit, lines start at the right height right away
+        byte flags = handle(owner).getDataWatcher().getByte(0);
+        handler.post(() -> {
+            if (show) {
+                handler.onSpawn(entityId, flags, false);
+            } else {
+                View view = handler.views.remove(entityId);
+                if (view != null) handler.destroyLines(view);
+            }
+        });
+    }
+
+    @Override
     public void load() {
         BukkitPlatform platform = (BukkitPlatform) TAB.getInstance().getPlatform();
         for (Player player : platform.getOnlinePlayers()) {
