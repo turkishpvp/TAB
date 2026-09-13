@@ -77,18 +77,22 @@ public class FakeEntryLayout extends LayoutBase {
         for (FixedSlot slot : fixedSlots) {
             viewer.getTabList().addEntry(slot.createEntry(viewer));
         }
-        for (int slot : emptySlots) {
-            viewer.getTabList().addEntry(new TabList.Entry(
-                    manager.getUUID(slot),
-                    manager.getConfiguration().getDirection().getEntryName(viewer, slot, LayoutManagerImpl.isTeamsEnabled()),
-                    pattern.getDefaultSkin(slot),
-                    true,
-                    manager.getConfiguration().getEmptySlotPing(),
-                    0,
-                    TabComponent.empty(),
-                    Integer.MAX_VALUE - manager.getConfiguration().getDirection().translateSlot(slot),
-                    true
-            ));
+        // With hide-empty-slots the tablist only holds slots that actually show something,
+        // so the list shrinks to the amount of online players instead of always being a full grid
+        if (!manager.getConfiguration().isHideEmptySlots()) {
+            for (int slot : emptySlots) {
+                viewer.getTabList().addEntry(new TabList.Entry(
+                        manager.getUUID(slot),
+                        manager.getConfiguration().getDirection().getEntryName(viewer, slot, LayoutManagerImpl.isTeamsEnabled()),
+                        pattern.getDefaultSkin(slot),
+                        true,
+                        manager.getConfiguration().getEmptySlotPing(),
+                        0,
+                        TabComponent.empty(),
+                        Integer.MAX_VALUE - manager.getConfiguration().getDirection().translateSlot(slot),
+                        true
+                ));
+            }
         }
         tick();
         viewer.getTabList().hideAllPlayers();

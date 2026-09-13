@@ -155,6 +155,7 @@ layout:
   enable-remaining-players-text: true
   remaining-players-text: '... and %s more'
   empty-slot-ping-value: 1000
+  hide-empty-slots: false
   page-switching: false
   page-count: 2
   page-switch-condition: ''

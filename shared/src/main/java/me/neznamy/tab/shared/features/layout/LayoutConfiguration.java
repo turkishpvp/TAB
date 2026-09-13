@@ -30,6 +30,7 @@ public class LayoutConfiguration {
     private final int emptySlotPing;
     @NotNull private final Map<Integer, String> defaultSkinHashMap;
     @NotNull private final LinkedHashMap<String, LayoutDefinition> layouts;
+    private final boolean hideEmptySlots;
     private final boolean pageSwitching;
     private final int pageCount;
     @Nullable private final String pageSwitchCondition;
@@ -47,7 +48,7 @@ public class LayoutConfiguration {
         // Check keys
         section.checkForUnknownKey(Arrays.asList("enabled", "direction", "default-skin", "enable-remaining-players-text",
                         "remaining-players-text", "empty-slot-ping-value", "default-skins", "layouts",
-                        "page-switching", "page-count", "page-switch-condition"));
+                        "hide-empty-slots", "page-switching", "page-count", "page-switch-condition"));
 
         // Check direction
         String directionString = section.getString("direction", "COLUMNS");
@@ -103,6 +104,7 @@ public class LayoutConfiguration {
                 section.getInt("empty-slot-ping-value", 1000),
                 defaultSkinHashMap,
                 layouts,
+                section.getBoolean("hide-empty-slots", false),
                 section.getBoolean("page-switching", false),
                 pageCount,
                 pageSwitchCondition.isEmpty() ? null : pageSwitchCondition

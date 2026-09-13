@@ -30,7 +30,18 @@ public class PlayerSlot {
         player = newPlayer;
         if (player != null) text = "";
         layout.getViewer().getTabList().removeEntry(uniqueId);
-        layout.getViewer().getTabList().addEntry(getSlot(layout.getViewer()));
+        if (shouldShow()) layout.getViewer().getTabList().addEntry(getSlot(layout.getViewer()));
+    }
+
+    /**
+     * Returns whether this slot should be present in the tablist at all. With hide-empty-slots
+     * enabled, a slot without a player and without text is left out entirely, so the tablist
+     * grows and shrinks with the amount of players instead of always being a full grid.
+     *
+     * @return  {@code true} if the slot should be sent to the viewer
+     */
+    private boolean shouldShow() {
+        return player != null || !text.isEmpty() || !layout.getManager().getConfiguration().isHideEmptySlots();
     }
 
     public @NotNull TabList.Entry getSlot(@NotNull TabPlayer viewer) {
@@ -67,10 +78,19 @@ public class PlayerSlot {
 
     public void setText(@NotNull String text) {
         if (this.text.equals(text) && player == null) return;
-        this.text = text;
         if (player != null) {
+            this.text = text;
             setPlayer(null);
-        } else {
+            return;
+        }
+        boolean wasShown = shouldShow();
+        this.text = text;
+        boolean show = shouldShow();
+        if (show && !wasShown) {
+            layout.getViewer().getTabList().addEntry(getSlot(layout.getViewer()));
+        } else if (!show && wasShown) {
+            layout.getViewer().getTabList().removeEntry(uniqueId);
+        } else if (show) {
             layout.getViewer().getTabList().updateDisplayName(uniqueId, cache.get(text));
         }
     }
