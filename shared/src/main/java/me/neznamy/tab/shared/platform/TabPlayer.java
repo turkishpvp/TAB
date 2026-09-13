@@ -19,6 +19,7 @@ import me.neznamy.tab.shared.features.belowname.BelowNamePlayerData;
 import me.neznamy.tab.shared.features.bossbar.BossBarPlayerData;
 import me.neznamy.tab.shared.features.header.HeaderFooterPlayerData;
 import me.neznamy.tab.shared.features.layout.LayoutManagerImpl;
+import me.neznamy.tab.shared.features.nametags.MultiLinePlayerData;
 import me.neznamy.tab.shared.features.nametags.NameTagPlayerData;
 import me.neznamy.tab.shared.features.playerlist.TablistFormattingPlayerData;
 import me.neznamy.tab.shared.features.playerlistobjective.PlayerListObjectivePlayerData;
@@ -106,6 +107,9 @@ public abstract class TabPlayer implements me.neznamy.tab.api.TabPlayer {
 
     /** Data for scoreboard team */
     public final NameTagPlayerData teamData = new NameTagPlayerData(this);
+
+    /** Data for multi-line nametags */
+    public final MultiLinePlayerData multiLineData = new MultiLinePlayerData();
 
     /** Data for Layout */
     public final LayoutManagerImpl.PlayerData layoutData = new LayoutManagerImpl.PlayerData();

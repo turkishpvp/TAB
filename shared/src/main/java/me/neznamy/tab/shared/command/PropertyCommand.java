@@ -29,6 +29,9 @@ public abstract class PropertyCommand extends SubCommand {
         sendMessage(sender, "&7Valid Properties are:");
         sendMessage(sender, " - &9tabprefix&3/&9customtabname&3/&9tabsuffix");
         sendMessage(sender, " - &9tagprefix&3/&9tagsuffix");
+        if (PropertyConfiguration.VALID_PROPERTIES.contains("customtagname")) {
+            sendMessage(sender, " - &9customtagname&3 and multi-line nametag lines defined in config");
+        }
     }
 
     protected void trySaveEntity(@Nullable TabPlayer sender, @NotNull String[] args) {

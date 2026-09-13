@@ -114,6 +114,8 @@ public class VisibilityManager extends RefreshableFeature implements JoinListene
      *          Player to update visibility of
      */
     public void updateVisibility(@NonNull TabPlayer player) {
+        MultiLineNameTags multiLine = TAB.getInstance().getFeatureManager().getFeature(TabConstants.Feature.MULTILINE_NAMETAGS);
+        if (multiLine != null) multiLine.getRenderer().refreshOwner(player);
         for (TabPlayer viewer : nameTags.getOnlinePlayers().getPlayers()) {
             if (viewer.teamData.hasTeamRegistered(player)) {
                 viewer.getScoreboard().updateTeam(
@@ -134,6 +136,8 @@ public class VisibilityManager extends RefreshableFeature implements JoinListene
      *          Viewer to send update to
      */
     public void updateVisibility(@NonNull TabPlayer player, @NonNull TabPlayer viewer) {
+        MultiLineNameTags multiLine = TAB.getInstance().getFeatureManager().getFeature(TabConstants.Feature.MULTILINE_NAMETAGS);
+        if (multiLine != null) multiLine.getRenderer().refresh(player, viewer);
         if (viewer.teamData.hasTeamRegistered(player)) {
             viewer.getScoreboard().updateTeam(
                     player.teamData.teamName,

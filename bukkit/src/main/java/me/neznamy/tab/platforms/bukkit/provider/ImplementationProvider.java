@@ -2,6 +2,7 @@ package me.neznamy.tab.platforms.bukkit.provider;
 
 import io.netty.channel.Channel;
 import me.neznamy.tab.platforms.bukkit.BukkitTabPlayer;
+import me.neznamy.tab.shared.platform.MultiLineRenderer;
 import me.neznamy.tab.shared.platform.Scoreboard;
 import me.neznamy.tab.shared.platform.TabList;
 import me.neznamy.tab.shared.platform.TabListEntryTracker;
@@ -70,4 +71,14 @@ public interface ImplementationProvider {
      * @return  Player's ping
      */
     int getPing(@NotNull BukkitTabPlayer player);
+
+    /**
+     * Creates renderer for multi-line nametags if supported by this server version.
+     *
+     * @return  Renderer or {@code null} if not supported
+     */
+    @Nullable
+    default MultiLineRenderer newMultiLineRenderer() {
+        return null;
+    }
 }

@@ -277,4 +277,14 @@ public interface Platform {
     default boolean hasLineOfSight(@NotNull TabPlayer viewer, @NotNull TabPlayer target) {
         return true;
     }
+
+    /**
+     * Creates renderer for multi-line nametags if this platform and server version supports it.
+     *
+     * @return  Renderer or {@code null} if not supported
+     */
+    @Nullable
+    default MultiLineRenderer createMultiLineRenderer() {
+        return null;
+    }
 }

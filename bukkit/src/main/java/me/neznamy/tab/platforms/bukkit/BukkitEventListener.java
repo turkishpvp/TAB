@@ -3,6 +3,8 @@ package me.neznamy.tab.platforms.bukkit;
 import lombok.RequiredArgsConstructor;
 import me.neznamy.tab.platforms.bukkit.platform.BukkitPlatform;
 import me.neznamy.tab.shared.TAB;
+import me.neznamy.tab.shared.TabConstants;
+import me.neznamy.tab.shared.features.nametags.MultiLineNameTags;
 import me.neznamy.tab.shared.platform.EventListener;
 import me.neznamy.tab.shared.platform.TabPlayer;
 import org.bukkit.entity.Player;
@@ -49,6 +51,11 @@ public class BukkitEventListener implements EventListener<Player>, Listener {
                 e.getPlayer().getUniqueId(),
                 platform.getServerVersionInfo().getImplementationProvider().newTabListEntryTracker(e.getPlayer())
         );
+        if (!TAB.getInstance().isPluginDisabled()) {
+            // Injected synchronously, entity spawn packets are sent right after this event
+            MultiLineNameTags multiLine = TAB.getInstance().getFeatureManager().getFeature(TabConstants.Feature.MULTILINE_NAMETAGS);
+            if (multiLine != null) multiLine.getRenderer().inject(e.getPlayer());
+        }
         join(e.getPlayer());
     }
 

@@ -17,6 +17,7 @@ import me.neznamy.tab.shared.features.globalplayerlist.GlobalPlayerList;
 import me.neznamy.tab.shared.features.header.HeaderFooter;
 import me.neznamy.tab.shared.features.injection.PipelineInjector;
 import me.neznamy.tab.shared.features.layout.LayoutManagerImpl;
+import me.neznamy.tab.shared.features.nametags.MultiLineNameTags;
 import me.neznamy.tab.shared.features.nametags.NameTag;
 import me.neznamy.tab.shared.features.pingspoof.PingSpoof;
 import me.neznamy.tab.shared.features.playerlist.PlayerList;
@@ -28,6 +29,7 @@ import me.neznamy.tab.shared.features.proxy.ProxySupportConfiguration;
 import me.neznamy.tab.shared.features.scoreboard.ScoreboardManagerImpl;
 import me.neznamy.tab.shared.features.sorting.Sorting;
 import me.neznamy.tab.shared.features.types.*;
+import me.neznamy.tab.shared.platform.MultiLineRenderer;
 import me.neznamy.tab.shared.platform.Scoreboard;
 import me.neznamy.tab.shared.platform.TabPlayer;
 import me.neznamy.tab.shared.platform.decorators.TrackedTabList;
@@ -623,6 +625,21 @@ public class FeatureManager {
         // Must be loaded after: Sorting
         if (config.getTeams() != null) {
             registerFeature(TabConstants.Feature.NAME_TAGS, new NameTag(config.getTeams()));
+        }
+
+        // Must be loaded after: NameTags
+        if (config.getMultiLine() != null) {
+            NameTag nameTags = getFeature(TabConstants.Feature.NAME_TAGS);
+            MultiLineRenderer renderer = config.isPipelineInjection() ? TAB.getInstance().getPlatform().createMultiLineRenderer() : null;
+            if (nameTags == null) {
+                TAB.getInstance().getConfigHelper().startup().startupWarn(config.getConfig().getFile(),
+                        "Multi-line nametags require scoreboard-teams to be enabled (vanilla nametag is hidden using teams). Feature will not work.");
+            } else if (renderer == null) {
+                TAB.getInstance().getConfigHelper().startup().startupWarn(config.getConfig().getFile(),
+                        "Multi-line nametags are only supported on 1.8.8 servers with pipeline injection enabled. Feature will not work.");
+            } else {
+                registerFeature(TabConstants.Feature.MULTILINE_NAMETAGS, new MultiLineNameTags(config.getMultiLine(), nameTags, renderer));
+            }
         }
 
         // Must be loaded after: Sorting, PlayerList

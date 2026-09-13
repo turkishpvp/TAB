@@ -61,6 +61,18 @@ belowname-objective:
   disable-condition: '%world%=disabledworld'
   view-distance: 10
 
+# Extra lines above and below player names (1.8.8 servers only, requires scoreboard-teams).
+# Lines are invisible armor stands riding the player, so the client moves them without any packets.
+# Line names are properties set in groups.yml / users.yml (for example abovename: "&7Level %player_level%").
+# "nametag" line is tagprefix + customtagname + tagsuffix and replaces vanilla nametag, remove it to keep vanilla nametag.
+multiline-nametags:
+  enabled: false
+  lines:
+    - abovename
+    - nametag
+    - belowname
+  disable-condition: '%world%=disabledworld'
+
 # https://github.com/NEZNAMY/TAB/wiki/Feature-guide:-Spectator-fix
 prevent-spectator-effect:
   enabled: false

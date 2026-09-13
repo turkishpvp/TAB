@@ -15,6 +15,7 @@ import me.neznamy.tab.shared.features.bossbar.BossBarConfiguration;
 import me.neznamy.tab.shared.features.globalplayerlist.GlobalPlayerListConfiguration;
 import me.neznamy.tab.shared.features.header.HeaderFooterConfiguration;
 import me.neznamy.tab.shared.features.layout.LayoutConfiguration;
+import me.neznamy.tab.shared.features.nametags.MultiLineConfiguration;
 import me.neznamy.tab.shared.features.nametags.TeamConfiguration;
 import me.neznamy.tab.shared.features.pingspoof.PingSpoofConfiguration;
 import me.neznamy.tab.shared.features.playerlist.TablistFormattingConfiguration;
@@ -57,6 +58,7 @@ public class Config {
     @Nullable private SortingConfiguration sorting;
     @Nullable private TablistFormattingConfiguration tablistFormatting;
     @Nullable private TeamConfiguration teams;
+    @Nullable private MultiLineConfiguration multiLine;
     @Nullable private ProxySupportConfiguration proxySupport;
     @NotNull private final ComponentConfiguration components;
 
@@ -109,6 +111,7 @@ public class Config {
         if (config.getBoolean("scoreboard-teams.enabled", true) || config.getBoolean("layout.enabled", false)) sorting = SortingConfiguration.fromSection(config.getConfigurationSection("scoreboard-teams"));
         if (config.getBoolean("tablist-name-formatting.enabled", false)) tablistFormatting = TablistFormattingConfiguration.fromSection(config.getConfigurationSection("tablist-name-formatting"));
         if (config.getBoolean("scoreboard-teams.enabled", false)) teams = TeamConfiguration.fromSection(config.getConfigurationSection("scoreboard-teams"));
+        if (config.getBoolean("multiline-nametags.enabled", false)) multiLine = MultiLineConfiguration.fromSection(config.getConfigurationSection("multiline-nametags"));
         if (config.getBoolean("proxy-support.enabled", true)) proxySupport = ProxySupportConfiguration.fromSection(config.getConfigurationSection("proxy-support"));
 
         if (layout != null) {

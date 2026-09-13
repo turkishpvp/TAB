@@ -6,6 +6,7 @@ import me.neznamy.tab.platforms.bukkit.BukkitTabPlayer;
 import me.neznamy.tab.platforms.bukkit.provider.ComponentConverter;
 import me.neznamy.tab.platforms.bukkit.provider.ImplementationProvider;
 import me.neznamy.tab.shared.platform.ChannelPacketQueue;
+import me.neznamy.tab.shared.platform.MultiLineRenderer;
 import me.neznamy.tab.shared.platform.Scoreboard;
 import me.neznamy.tab.shared.platform.TabList;
 import me.neznamy.tab.shared.platform.TabListEntryTracker;
@@ -44,6 +45,12 @@ public class NMSImplementationProvider implements ImplementationProvider {
     @NotNull
     public TabListEntryTracker newTabListEntryTracker(@NotNull Player player) {
         return new NMSTabListEntryTracker(getChannel(player));
+    }
+
+    @Override
+    @NotNull
+    public MultiLineRenderer newMultiLineRenderer() {
+        return new NMSMultiLineRenderer();
     }
 
     @Override

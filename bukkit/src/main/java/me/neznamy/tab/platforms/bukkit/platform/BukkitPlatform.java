@@ -28,6 +28,7 @@ import me.neznamy.tab.shared.placeholders.expansion.EmptyTabExpansion;
 import me.neznamy.tab.shared.placeholders.expansion.TabExpansion;
 import me.neznamy.tab.shared.placeholders.types.PlayerPlaceholderImpl;
 import me.neznamy.tab.shared.platform.BossBar;
+import me.neznamy.tab.shared.platform.MultiLineRenderer;
 import me.neznamy.tab.shared.platform.Scoreboard;
 import me.neznamy.tab.shared.platform.TabList;
 import me.neznamy.tab.shared.platform.TabPlayer;
@@ -147,6 +148,18 @@ public class BukkitPlatform implements BackendPlatform {
     public PipelineInjector createPipelineInjector() {
         return serverVersionInfo.getServerVersion().getNetworkId() >= ProtocolVersion.V1_8.getNetworkId()
                 ? new BukkitPipelineInjector() : null;
+    }
+
+    @Override
+    @Nullable
+    public MultiLineRenderer createMultiLineRenderer() {
+        try {
+            return serverVersionInfo.getImplementationProvider().newMultiLineRenderer();
+        } catch (Throwable t) {
+            // Server fork with different packet fields, do not break the whole plugin
+            TAB.getInstance().getErrorManager().criticalError("Failed to initialize multi-line nametags on this server", t);
+            return null;
+        }
     }
 
     @Override

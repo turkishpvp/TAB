@@ -51,6 +51,9 @@ public class NameTagPlayerData {
     /** Players who this player is vanished for */
     public final Set<UUID> vanishedFor = new HashSet<>();
 
+    /** Whether vanilla nametag is replaced by multi-line nametags (read by network threads) */
+    public volatile boolean multiLineActive;
+
     /** Currently used collision rule */
     public boolean collisionRule;
 
@@ -200,11 +203,24 @@ public class NameTagPlayerData {
      * @return  {@code true} if nametag should be visible by given viewer, {@code false} if not
      */
     public boolean getTeamVisibility(@NonNull TabPlayer viewer) {
-        if (hasHiddenNametag()) return false; // At least 1 reason for invisible nametag exists
-        if (hasHiddenNametag(viewer)) return false; // At least 1 reason for invisible nametag for this viewer exists
-        if (viewer.teamData.invisibleNameTagView) return false; // Viewer does not want to see nametags
+        if (multiLineActive) return false; // Name is displayed by multi-line nametags instead
+        if (!isNameTagVisibleTo(viewer)) return false;
         if (viewer.getVersion() == ProtocolVersion.V1_8 && player.hasInvisibilityPotion()) return false;
         return true;
+    }
+
+    /**
+     * Returns {@code true} if nametag of this player is not hidden for given viewer by any reason
+     * (API, command, condition, view toggle). Used by team visibility and multi-line nametags.
+     *
+     * @param   viewer
+     *          Viewer to check nametag visibility for
+     * @return  {@code true} if nametag should be visible by given viewer, {@code false} if not
+     */
+    public boolean isNameTagVisibleTo(@NonNull TabPlayer viewer) {
+        if (hasHiddenNametag()) return false; // At least 1 reason for invisible nametag exists
+        if (hasHiddenNametag(viewer)) return false; // At least 1 reason for invisible nametag for this viewer exists
+        return !viewer.teamData.invisibleNameTagView; // Viewer does not want to see nametags
     }
 
     /**
