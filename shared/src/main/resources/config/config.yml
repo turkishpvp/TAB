@@ -63,8 +63,14 @@ belowname-objective:
 
 # Extra lines above and below player names (1.8.8 servers only, requires scoreboard-teams).
 # Lines are invisible armor stands riding the player, so the client moves them without any packets.
-# Line names are properties set in groups.yml / users.yml (for example abovename: "&7Level %player_level%").
-# Up to 41 lines (for example 20 above, nametag, 20 below). Lines with empty value take no space.
+# Line names are properties set in groups.yml / users.yml, a single text or a list where every entry is one line:
+#   _DEFAULT_:
+#     abovename:
+#       - "%animation:Welcome%"
+#       - "&7Level %player_level%"
+#     belowname: "&c%player_health% ❤"
+# Placeholders and animations (%animation:name%) refresh automatically.
+# Up to 41 lines in total. Lines with empty value take no space.
 # "nametag" line is tagprefix + customtagname + tagsuffix and replaces vanilla nametag, remove it to keep vanilla nametag.
 multiline-nametags:
   enabled: false
@@ -77,7 +83,7 @@ multiline-nametags:
   first-line-height: 2.34
   # Space between lines in blocks (vanilla uses 0.276). Heights are matched by invisible entities, usually within 1 cm.
   line-spacing: 0.26
-  # Space between a specific line and the line below it
+  # Space below the last line of a specific property (for example between abovename list and nametag)
   custom-line-spacing:
     abovename: 0.3
   # Move lines down while sneaking like vanilla nametag. Lines always turn translucent and hidden behind walls when sneaking.

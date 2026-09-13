@@ -171,19 +171,28 @@ public class MultiLineNameTags extends RefreshableFeature implements JoinListene
         MultiLinePlayerData.Layout layout = null;
         if (active) {
             List<String> texts = new ArrayList<>(data.lineProperties.length);
-            List<String> names = new ArrayList<>(data.lineProperties.length);
+            List<Double> spacings = new ArrayList<>(data.lineProperties.length);
             for (int i = 0; i < data.lineProperties.length; i++) {
                 Property property = data.lineProperties[i];
                 String text = property == null ? data.prefix.updateAndGet() + data.name.updateAndGet() + data.suffix.updateAndGet() : property.updateAndGet();
-                // ponytail: relational placeholders are not resolved in lines, they would require per-viewer texts on network threads
-                String legacy = cache.get(text).toLegacyText();
-                if (isVisiblyEmpty(legacy)) continue; // Empty lines take no space
-                texts.add(legacy);
-                names.add(configuration.getLines().get(i));
+                // List values in groups.yml/users.yml are joined with new lines, every entry is a separate line
+                String[] parts = text.split("\n", -1);
+                int lastVisible = -1;
+                for (String part : parts) {
+                    // ponytail: relational placeholders are not resolved in lines, they would require per-viewer texts on network threads
+                    String legacy = cache.get(part).toLegacyText();
+                    if (isVisiblyEmpty(legacy)) continue; // Empty lines take no space
+                    if (texts.size() == MultiLineConfiguration.MAX_LINES) break; // Limited by fake entity id block
+                    texts.add(legacy);
+                    spacings.add(configuration.getLineSpacing());
+                    lastVisible = spacings.size() - 1;
+                }
+                // Custom spacing of a property applies below its last line
+                if (lastVisible != -1) spacings.set(lastVisible, configuration.getSpacingBelow(configuration.getLines().get(i)));
             }
             double[] heights = new double[texts.size()];
             for (int i = 0; i < heights.length - 1; i++) {
-                heights[i] = configuration.getSpacingBelow(names.get(i));
+                heights[i] = spacings.get(i);
             }
             if (heights.length > 0) heights[heights.length - 1] = firstLineHeight;
             layout = new MultiLinePlayerData.Layout(texts.toArray(new String[0]), heights, configuration.isLowerWhenSneaking());
