@@ -30,6 +30,9 @@ public class LayoutConfiguration {
     private final int emptySlotPing;
     @NotNull private final Map<Integer, String> defaultSkinHashMap;
     @NotNull private final LinkedHashMap<String, LayoutDefinition> layouts;
+    private final boolean pageSwitching;
+    private final int pageCount;
+    @Nullable private final String pageSwitchCondition;
 
     /**
      * Returns instance of this class created from given configuration section. If there are
@@ -43,7 +46,8 @@ public class LayoutConfiguration {
     public static LayoutConfiguration fromSection(@NotNull ConfigurationSection section) {
         // Check keys
         section.checkForUnknownKey(Arrays.asList("enabled", "direction", "default-skin", "enable-remaining-players-text",
-                        "remaining-players-text", "empty-slot-ping-value", "default-skins", "layouts"));
+                        "remaining-players-text", "empty-slot-ping-value", "default-skins", "layouts",
+                        "page-switching", "page-count", "page-switch-condition"));
 
         // Check direction
         String directionString = section.getString("direction", "COLUMNS");
@@ -82,6 +86,14 @@ public class LayoutConfiguration {
             layouts.put(asString, LayoutDefinition.fromSection(asString, layoutsSection.getConfigurationSection(asString)));
         }
 
+        // Page switching
+        int pageCount = section.getInt("page-count", 2);
+        if (pageCount < 1) {
+            section.startupWarn("Invalid page-count value \"" + pageCount + "\" defined. Page count must be at least 1. Using 2.");
+            pageCount = 2;
+        }
+        String pageSwitchCondition = section.getString("page-switch-condition", "");
+
         return new LayoutConfiguration(
                 section,
                 direction,
@@ -90,7 +102,10 @@ public class LayoutConfiguration {
                 EnumChatFormat.color(section.getString("remaining-players-text", "... and %s more")),
                 section.getInt("empty-slot-ping-value", 1000),
                 defaultSkinHashMap,
-                layouts
+                layouts,
+                section.getBoolean("page-switching", false),
+                pageCount,
+                pageSwitchCondition.isEmpty() ? null : pageSwitchCondition
         );
     }
 

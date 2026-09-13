@@ -14,6 +14,7 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerChangedWorldEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
+import org.bukkit.event.player.PlayerToggleSneakEvent;
 import org.jetbrains.annotations.NotNull;
 
 /**
@@ -68,6 +69,17 @@ public class BukkitEventListener implements EventListener<Player>, Listener {
     @EventHandler(priority = EventPriority.LOWEST)
     public void onWorldChange(PlayerChangedWorldEvent e) {
         worldChange(e.getPlayer().getUniqueId(), e.getPlayer().getWorld().getName());
+    }
+
+    /**
+     * Listens to sneak toggle event to switch tablist pages.
+     *
+     * @param   e
+     *          Sneak toggle event
+     */
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onSneak(PlayerToggleSneakEvent e) {
+        if (e.isSneaking()) sneak(e.getPlayer().getUniqueId());
     }
 
     @Override

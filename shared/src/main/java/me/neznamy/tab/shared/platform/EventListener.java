@@ -1,9 +1,11 @@
 package me.neznamy.tab.shared.platform;
 
 import me.neznamy.tab.shared.TAB;
+import me.neznamy.tab.shared.TabConstants;
 import me.neznamy.tab.shared.TabConstants.CpuUsageCategory;
 import me.neznamy.tab.shared.cpu.TimedCaughtTask;
 import me.neznamy.tab.shared.data.World;
+import me.neznamy.tab.shared.features.layout.LayoutManagerImpl;
 import me.neznamy.tab.shared.task.PluginMessageDecodeTask;
 import org.jetbrains.annotations.NotNull;
 
@@ -53,6 +55,22 @@ public interface EventListener<T> {
         if (TAB.getInstance().isPluginDisabled()) return;
         TAB.getInstance().getCPUManager().runTask(() ->
                 TAB.getInstance().getFeatureManager().onWorldChange(player, World.byName(world)));
+    }
+
+    /**
+     * Processes sneak start by switching the player to the next tablist page.
+     *
+     * @param   player
+     *          UUID of player who started sneaking
+     */
+    default void sneak(@NotNull UUID player) {
+        if (TAB.getInstance().isPluginDisabled() || TAB.getInstance().getFeatureManager() == null) return;
+        LayoutManagerImpl layout = TAB.getInstance().getFeatureManager().getFeature(TabConstants.Feature.LAYOUT);
+        if (layout == null || !layout.getConfiguration().isPageSwitching()) return;
+        TAB.getInstance().getCPUManager().runTask(() -> {
+            TabPlayer p = TAB.getInstance().getPlayer(player);
+            if (p != null && p.isLoaded()) layout.onSneak(p);
+        });
     }
 
     /**

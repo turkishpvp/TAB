@@ -208,6 +208,7 @@ public class TabConstants {
         public static final String TIME = "%time%";
         public static final String DATE = "%date%";
         public static final String PING = "%ping%";
+        public static final String TAB_PAGE = "%tab_page%";
         public static final String PLAYER_VERSION = "%player-version%";
         public static final String PLAYER_VERSION_ID = "%player-version-id%";
         public static final String MEMORY_USED = "%memory-used%";

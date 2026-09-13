@@ -17,6 +17,8 @@ import me.neznamy.tab.shared.features.layout.pattern.LayoutPattern;
 import me.neznamy.tab.shared.features.pingspoof.PingSpoof;
 import me.neznamy.tab.shared.features.playerlist.PlayerList;
 import me.neznamy.tab.shared.features.types.*;
+import me.neznamy.tab.shared.placeholders.conditions.Condition;
+import me.neznamy.tab.shared.placeholders.types.PlayerPlaceholderImpl;
 import me.neznamy.tab.shared.platform.TabPlayer;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -38,6 +40,12 @@ public class LayoutManagerImpl extends RefreshableFeature implements LayoutManag
     private final Map<TabPlayer, String> sortedPlayers = Collections.synchronizedMap(new TreeMap<>(Comparator.comparing(p -> p.layoutData.sortingString)));
     private PlayerList playerList;
     private PingSpoof pingSpoof;
+
+    /** Placeholder with page the player is on, only registered if page switching is enabled */
+    @Nullable private PlayerPlaceholderImpl pagePlaceholder;
+
+    /** Condition which must be met for page switching to work, null if not configured */
+    @Nullable private Condition pageSwitchCondition;
     @Getter private static boolean teamsEnabled;
 
     /**
@@ -53,6 +61,13 @@ public class LayoutManagerImpl extends RefreshableFeature implements LayoutManag
             UUID id = new UUID(0,  configuration.getDirection().translateSlot(slot));
             uuids[slot-1] = id;
             UUIDS_SET.add(id);
+        }
+        if (configuration.isPageSwitching()) {
+            pageSwitchCondition = TAB.getInstance().getPlaceholderManager().getConditionManager()
+                    .getByNameOrExpression(configuration.getPageSwitchCondition());
+            if (pageSwitchCondition != null) addUsedPlaceholder(pageSwitchCondition.getPlaceholderIdentifier());
+            pagePlaceholder = TAB.getInstance().getPlaceholderManager().registerPlayerPlaceholder(
+                    TabConstants.Placeholder.TAB_PAGE, -1, p -> String.valueOf(((TabPlayer) p).layoutData.page));
         }
         for (Entry<String, LayoutDefinition> entry : configuration.getLayouts().entrySet()) {
             LayoutPattern pattern = new LayoutPattern(this, entry.getValue());
@@ -110,6 +125,12 @@ public class LayoutManagerImpl extends RefreshableFeature implements LayoutManag
 
     @Override
     public void refresh(@NotNull TabPlayer p, boolean force) {
+        if (p.layoutData.page != 1 && !isPageSwitchingAllowed(p)) {
+            // Condition stopped being met (changed world, gamemode, ...), return to the first page.
+            // Updating the placeholder calls this method again, that time with page 1.
+            setPage(p, 1);
+            return;
+        }
         LayoutPattern highest = getHighestLayout(p);
         LayoutPattern current = p.layoutData.currentLayout == null ? null : p.layoutData.currentLayout.view.getPattern();
         if (highest != current) {
@@ -182,6 +203,42 @@ public class LayoutManagerImpl extends RefreshableFeature implements LayoutManag
         }
     }
 
+    /**
+     * Switches the player to the next page. Called when a player starts sneaking.
+     * Does nothing if page switching is disabled or its condition is not met.
+     *
+     * @param   p
+     *          Player who started sneaking
+     */
+    public void onSneak(@NotNull TabPlayer p) {
+        if (pagePlaceholder == null || !isPageSwitchingAllowed(p)) return;
+        setPage(p, nextPage(p.layoutData.page, configuration.getPageCount()));
+    }
+
+    /**
+     * Returns the page to display after the given one, cycling back to the first page after the last one.
+     *
+     * @param   currentPage
+     *          Page the player is currently on
+     * @param   pageCount
+     *          Amount of configured pages
+     * @return  Page to switch to
+     */
+    public static int nextPage(int currentPage, int pageCount) {
+        return currentPage % pageCount + 1;
+    }
+
+    private boolean isPageSwitchingAllowed(@NotNull TabPlayer p) {
+        return pagePlaceholder != null && (pageSwitchCondition == null || pageSwitchCondition.isMet(p));
+    }
+
+    private void setPage(@NotNull TabPlayer p, int page) {
+        if (pagePlaceholder == null || p.layoutData.page == page) return;
+        p.layoutData.page = page;
+        // Updating the placeholder refreshes this feature, which displays the layout of the new page
+        pagePlaceholder.updateValue(p, String.valueOf(page));
+    }
+
     // ------------------
     // API Implementation
     // ------------------
@@ -239,6 +296,7 @@ public class LayoutManagerImpl extends RefreshableFeature implements LayoutManag
                put(pattern.getName(), pattern.dump(player, player.layoutData.currentLayout == null ? null : player.layoutData.currentLayout.view.getPattern()));
             }
         }});
+        map.put("page", player.layoutData.page);
         if (player.layoutData.currentLayout != null) {
             map.put("currently displayed layout", new LinkedHashMap<String, Object>() {{
                 put("name", player.layoutData.currentLayout.view.getPattern().getName());
@@ -264,6 +322,9 @@ public class LayoutManagerImpl extends RefreshableFeature implements LayoutManag
         /** Layout forced via API */
         @Nullable
         public LayoutPattern forcedLayout;
+
+        /** Page the player is currently on, starting at 1. Written from the feature thread and the placeholder refresh thread. */
+        public volatile int page = 1;
     }
 
     /**
