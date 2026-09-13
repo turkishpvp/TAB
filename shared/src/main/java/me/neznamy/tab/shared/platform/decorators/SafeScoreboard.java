@@ -210,6 +210,20 @@ public abstract class SafeScoreboard<T extends TabPlayer> implements Scoreboard 
         updateTeam(team);
     }
 
+    /**
+     * Removes score from tracked state without sending any packet. Used when score holder
+     * leaves, otherwise every viewer keeps a score entry of everyone who was online during their session.
+     *
+     * @param   objectiveName
+     *          Objective name
+     * @param   scoreHolder
+     *          Score holder
+     */
+    public synchronized void forgetScore(@NonNull String objectiveName, @NonNull String scoreHolder) {
+        Objective objective = objectives.get(objectiveName);
+        if (objective != null) objective.getScores().remove(scoreHolder);
+    }
+
     @Override
     public synchronized void resend() {
         for (Objective objective : objectives.values()) {

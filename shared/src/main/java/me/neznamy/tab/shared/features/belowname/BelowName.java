@@ -16,6 +16,7 @@ import me.neznamy.tab.shared.features.proxy.ProxySupport;
 import me.neznamy.tab.shared.features.types.*;
 import me.neznamy.tab.shared.platform.Scoreboard;
 import me.neznamy.tab.shared.platform.TabPlayer;
+import me.neznamy.tab.shared.platform.decorators.SafeScoreboard;
 import me.neznamy.tab.shared.util.DumpUtils;
 import me.neznamy.tab.shared.util.OnlinePlayers;
 import me.neznamy.tab.shared.util.cache.StringToComponentCache;
@@ -220,7 +221,7 @@ public class BelowName extends RefreshableFeature implements JoinListener, QuitL
 
     @Override
     public void refresh(@NotNull TabPlayer refreshed, boolean force) {
-        if (refreshed.belowNameData.value == null) return; // Player not loaded yet (refresh called before onJoin)
+        if (refreshed.belowNameData.value == null || refreshed.belowNameData.fancyValue == null) return; // Player not loaded yet (refresh called before onJoin)
         int value = getValue(refreshed);
         Property fancyValue = refreshed.belowNameData.fancyValue;
         fancyValue.update();
@@ -316,6 +317,9 @@ public class BelowName extends RefreshableFeature implements JoinListener, QuitL
     public void onQuit(@NotNull TabPlayer disconnectedPlayer) {
         disconnectedPlayer.setBelowNameDistance(10); // Reset to default distance
         onlinePlayers.removePlayer(disconnectedPlayer);
+        for (TabPlayer viewer : onlinePlayers.getPlayers()) {
+            ((SafeScoreboard<?>) viewer.getScoreboard()).forgetScore(OBJECTIVE_NAME, disconnectedPlayer.getNickname());
+        }
     }
 
     @NotNull

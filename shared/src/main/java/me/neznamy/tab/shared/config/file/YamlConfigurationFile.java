@@ -69,12 +69,10 @@ public class YamlConfigurationFile extends ConfigurationFile {
 
     @Override
     public synchronized void save() {
-        try {
-            Writer writer = new OutputStreamWriter(Files.newOutputStream(file.toPath()), StandardCharsets.UTF_8);
+        try (Writer writer = new OutputStreamWriter(Files.newOutputStream(file.toPath()), StandardCharsets.UTF_8)) {
             DumperOptions options = new DumperOptions();
             options.setDefaultFlowStyle(DumperOptions.FlowStyle.BLOCK);
             new Yaml(options).dump(values, writer);
-            writer.close();
         } catch (IOException e) {
             TAB.getInstance().getPlatform().logWarn(new TabTextComponent(String.format(
                     "Failed to save yaml file %s: %s: %s",

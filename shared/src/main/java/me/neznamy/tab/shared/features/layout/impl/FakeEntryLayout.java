@@ -104,7 +104,11 @@ public class FakeEntryLayout extends LayoutBase {
 
     @Override
     public void tick() {
-        List<TabPlayer> players = manager.getSortedPlayers().keySet().stream().filter(viewer::canSee).collect(Collectors.toList());
+        List<TabPlayer> players;
+        synchronized (manager.getSortedPlayers()) { // Iterating synchronized map requires holding its lock
+            players = new ArrayList<>(manager.getSortedPlayers().keySet());
+        }
+        players.removeIf(p -> !viewer.canSee(p));
         for (PlayerGroup group : groups) {
             group.tick(players);
         }

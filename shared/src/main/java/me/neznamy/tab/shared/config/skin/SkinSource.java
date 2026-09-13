@@ -11,6 +11,7 @@ import org.json.simple.parser.ParseException;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.net.URL;
+import java.net.URLConnection;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
@@ -75,7 +76,11 @@ public abstract class SkinSource {
 
     @NotNull
     protected JSONObject getResponse(@NotNull String url) throws IOException, ParseException {
-        try (InputStreamReader reader = new InputStreamReader(new URL(url).openStream())) {
+        URLConnection connection = new URL(url).openConnection();
+        // Runs on TAB's processing thread, a hanging request would block everything without timeouts
+        connection.setConnectTimeout(5000);
+        connection.setReadTimeout(5000);
+        try (InputStreamReader reader = new InputStreamReader(connection.getInputStream())) {
             return (JSONObject) new JSONParser().parse(reader);
         }
     }

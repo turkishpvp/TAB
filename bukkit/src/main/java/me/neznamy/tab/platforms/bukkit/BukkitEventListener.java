@@ -31,6 +31,9 @@ public class BukkitEventListener implements EventListener<Player>, Listener {
      */
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onQuit(PlayerQuitEvent e) {
+        // Removed synchronously, async quit processing is skipped while plugin is disabled (e.g. failed reload),
+        // which would keep the tracker and the whole connection referenced forever
+        TAB.getInstance().getTablistTrackers().remove(e.getPlayer().getUniqueId());
         quit(e.getPlayer().getUniqueId());
     }
 

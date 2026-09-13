@@ -106,7 +106,7 @@ public class BossBarManagerImpl extends RefreshableFeature implements BossBarMan
     public void onJoin(@NotNull TabPlayer connectedPlayer) {
         connectedPlayer.expansionData.setBossBarVisible(false);
         if (toggleManager != null) toggleManager.convert(connectedPlayer);
-        setBossBarVisible(connectedPlayer, configuration.isHiddenByDefault() == (toggleManager != null && toggleManager.contains(connectedPlayer)), false);
+        setBossBarVisible0(connectedPlayer, configuration.isHiddenByDefault() == (toggleManager != null && toggleManager.contains(connectedPlayer)), false);
     }
 
     /**
@@ -189,10 +189,8 @@ public class BossBarManagerImpl extends RefreshableFeature implements BossBarMan
         BossBar bar = registeredBossBars.remove(name);
         if (bar == null) throw new IllegalArgumentException("No registered BossBar found with name " + name);
         lineValues = registeredBossBars.values().toArray(new BossBarLine[0]);
-        for (TabPlayer player : TAB.getInstance().getOnlinePlayers()) {
-            bar.removePlayer(player);
-            player.bossbarData.visibleBossBars.remove(bar);
-        }
+        customThread.execute(new TimedCaughtTask(TAB.getInstance().getCpu(), () -> removeBossBar0((BossBarLine) bar),
+                getFeatureName(), "Removing API BossBar"));
     }
 
     @Override
@@ -203,16 +201,24 @@ public class BossBarManagerImpl extends RefreshableFeature implements BossBarMan
             throw new IllegalArgumentException("This bossbar (" + bar.getName() + ") is not registered.");
         }
         lineValues = registeredBossBars.values().toArray(new BossBarLine[0]);
+        customThread.execute(new TimedCaughtTask(TAB.getInstance().getCpu(), () -> removeBossBar0(bar),
+                getFeatureName(), "Removing API BossBar"));
+    }
+
+    private void removeBossBar0(@NonNull BossBarLine bar) {
         for (TabPlayer player : TAB.getInstance().getOnlinePlayers()) {
             bar.removePlayer(player);
             player.bossbarData.visibleBossBars.remove(bar);
         }
+        bar.unregisterFeatures();
     }
 
     @Override
     public void toggleBossBar(@NonNull me.neznamy.tab.api.TabPlayer player, boolean sendToggleMessage) {
         ensureActive();
-        setBossBarVisible(player, !hasBossBarVisible(player), sendToggleMessage);
+        customThread.execute(new TimedCaughtTask(TAB.getInstance().getCpu(),
+                () -> setBossBarVisible0((TabPlayer) player, !((TabPlayer) player).bossbarData.visible, sendToggleMessage),
+                getFeatureName(), "Toggling bossbar"));
     }
 
     @Override
@@ -224,7 +230,12 @@ public class BossBarManagerImpl extends RefreshableFeature implements BossBarMan
     @Override
     public void setBossBarVisible(@NonNull me.neznamy.tab.api.TabPlayer p, boolean visible, boolean sendToggleMessage) {
         ensureActive();
-        TabPlayer player = (TabPlayer) p;
+        // Called from commands and API on other threads, state of this feature is only touched by its own thread
+        customThread.execute(new TimedCaughtTask(TAB.getInstance().getCpu(), () -> setBossBarVisible0((TabPlayer) p, visible, sendToggleMessage),
+                getFeatureName(), "Toggling bossbar"));
+    }
+
+    private void setBossBarVisible0(@NonNull TabPlayer player, boolean visible, boolean sendToggleMessage) {
         if (player.bossbarData.visible == visible) return;
         if (visible) {
             player.bossbarData.visible = true;

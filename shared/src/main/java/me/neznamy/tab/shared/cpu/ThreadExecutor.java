@@ -5,7 +5,7 @@ import me.neznamy.tab.shared.TAB;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.List;
-import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
@@ -29,7 +29,11 @@ public class ThreadExecutor {
      */
     public ThreadExecutor(@NotNull String threadName) {
         this.threadName = threadName;
-        executor = Executors.newSingleThreadScheduledExecutor(new ThreadFactoryBuilder().setNameFormat(threadName).build());
+        ScheduledThreadPoolExecutor executor = new ScheduledThreadPoolExecutor(1, new ThreadFactoryBuilder().setNameFormat(threadName).build());
+        // Do not wait for delayed tasks (announcements, retries) on shutdown, it blocks reload/stop for seconds
+        executor.setExecuteExistingDelayedTasksAfterShutdownPolicy(false);
+        executor.setRemoveOnCancelPolicy(true);
+        this.executor = executor;
     }
 
     /**

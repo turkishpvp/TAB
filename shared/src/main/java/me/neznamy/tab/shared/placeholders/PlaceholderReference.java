@@ -9,6 +9,7 @@ import me.neznamy.tab.shared.placeholders.types.TabPlaceholder;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.*;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
  * This class holds a reference to a placeholder.
@@ -39,7 +40,7 @@ public class PlaceholderReference {
      * mutual tracking allows faster parent placeholder changes when a nested
      * placeholder changed value.
      */
-    private final List<PlaceholderReference> parents = new ArrayList<>();
+    private final List<PlaceholderReference> parents = new CopyOnWriteArrayList<>(); // Modified by multiple threads
 
     /** Set of features using this placeholder, used to call refresh on them */
     private final Set<RefreshableFeature> usedByFeatures = Collections.synchronizedSet(new HashSet<>());
@@ -63,6 +64,16 @@ public class PlaceholderReference {
      */
     public boolean addUsedFeature(@NonNull RefreshableFeature feature) {
         return usedByFeatures.add(feature);
+    }
+
+    /**
+     * Removes feature from features using this placeholder.
+     *
+     * @param   feature
+     *          Feature to remove
+     */
+    public void removeUsedFeature(@NonNull RefreshableFeature feature) {
+        usedByFeatures.remove(feature);
     }
 
     /**

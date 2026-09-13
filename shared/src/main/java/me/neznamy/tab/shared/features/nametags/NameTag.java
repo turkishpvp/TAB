@@ -144,6 +144,9 @@ public class NameTag extends TabFeature implements NameTagManager, JoinListener,
         onlinePlayers.removePlayer(disconnectedPlayer);
         unregisterTeam(disconnectedPlayer);
         disconnectedPlayer.teamData.clearRegisteredTeams();
+        for (TabPlayer vanished : onlinePlayers.getPlayers()) {
+            vanished.teamData.vanishedFor.remove(disconnectedPlayer.getUniqueId()); // Would grow forever during long vanish sessions
+        }
     }
 
     @Override
@@ -237,6 +240,7 @@ public class NameTag extends TabFeature implements NameTagManager, JoinListener,
     }
 
     private void registerTeam(@NonNull TabPlayer p) {
+        if (!p.isOnline()) return;
         for (TabPlayer viewer : onlinePlayers.getPlayers()) {
             registerTeam(p, viewer);
         }
@@ -277,6 +281,7 @@ public class NameTag extends TabFeature implements NameTagManager, JoinListener,
         customThread.execute(new TimedCaughtTask(TAB.getInstance().getCpu(), () -> {
             // Function ran before onJoin did (super rare), drop action since onJoin will use new team name anyway
             if (player.teamData.teamName == null) return;
+            if (!player.isOnline()) return; // Quit processed in the meantime, do not register the team again
             for (TabPlayer viewer : onlinePlayers.getPlayers()) {
                 viewer.teamData.unregisterTeam(player);
             }
@@ -515,7 +520,9 @@ public class NameTag extends TabFeature implements NameTagManager, JoinListener,
 
     @Override
     public void toggleNameTagVisibilityView(@NonNull me.neznamy.tab.api.TabPlayer p, boolean sendToggleMessage) {
-        setNameTagVisibilityView((TabPlayer) p, ((TabPlayer) p).teamData.invisibleNameTagView, sendToggleMessage);
+        customThread.execute(new TimedCaughtTask(TAB.getInstance().getCpu(),
+                () -> setNameTagVisibilityView0((TabPlayer) p, ((TabPlayer) p).teamData.invisibleNameTagView, sendToggleMessage),
+                getFeatureName(), "Toggling nametag view"));
     }
 
     @Override
@@ -530,6 +537,12 @@ public class NameTag extends TabFeature implements NameTagManager, JoinListener,
 
     private void setNameTagVisibilityView(@NonNull TabPlayer player, boolean visible, boolean sendToggleMessage) {
         ensureActive();
+        // Called from commands and API on other threads, team state is only touched by nametag thread
+        customThread.execute(new TimedCaughtTask(TAB.getInstance().getCpu(), () -> setNameTagVisibilityView0(player, visible, sendToggleMessage),
+                getFeatureName(), "Toggling nametag view"));
+    }
+
+    private void setNameTagVisibilityView0(@NonNull TabPlayer player, boolean visible, boolean sendToggleMessage) {
         if (player.teamData.invisibleNameTagView != visible) return;
         player.teamData.invisibleNameTagView = !visible;
         if (sendToggleMessage) {

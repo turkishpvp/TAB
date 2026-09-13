@@ -57,7 +57,13 @@ public class CpuManager {
     private volatile boolean enabled;
 
     /** Boolean tracking whether CPU usage should be tracked or not */
-    private boolean trackUsage;
+    private volatile boolean trackUsage;
+
+    /** Last time usage report was requested, tracking turns off automatically when nobody looks at it */
+    private volatile long lastTrackingRequest;
+
+    /** Whether the report rotation task was already started */
+    private boolean trackingTaskStarted;
 
     /**
      * Enables CPU usage tracking and returns {@code true} if it was not enabled previously.
@@ -65,15 +71,31 @@ public class CpuManager {
      *
      * @return  {@code true} if this call enabled it, {@code false} if it was already enabled before
      */
-    public boolean enableTracking() {
+    public synchronized boolean enableTracking() {
+        lastTrackingRequest = System.currentTimeMillis();
         if (trackUsage) return false;
         trackUsage = true;
+        if (trackingTaskStarted) return true;
+        trackingTaskStarted = true;
         processingThread.repeatTask(new TimedCaughtTask(this, () -> {
+            if (!trackUsage) return;
             lastReport = new CpuReport(UPDATE_RATE_SECONDS, featureUsageCurrent, placeholderUsageCurrent);
             featureUsageCurrent = new ConcurrentHashMap<>();
             placeholderUsageCurrent = new ConcurrentHashMap<>();
+            // ponytail: fixed 1 minute window, tracking adds nanoTime + map updates to every task
+            if (System.currentTimeMillis() - lastTrackingRequest > TimeUnit.MINUTES.toMillis(1)) {
+                trackUsage = false;
+                lastReport = null;
+            }
         }, "CPU Tracking", "Resetting values"), ((int) TimeUnit.SECONDS.toMillis(UPDATE_RATE_SECONDS)));
         return true;
+    }
+
+    /**
+     * Marks report as requested, keeping tracking enabled.
+     */
+    public void markTrackingRequested() {
+        lastTrackingRequest = System.currentTimeMillis();
     }
 
     /**

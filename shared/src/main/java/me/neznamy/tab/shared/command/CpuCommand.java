@@ -30,6 +30,7 @@ public class CpuCommand extends SubCommand {
 
     @Override
     public void execute(@Nullable TabPlayer sender, @NotNull String[] args) {
+        TAB.getInstance().getCPUManager().markTrackingRequested();
         CpuReport report = TAB.getInstance().getCPUManager().getLastReport();
         if (report == null) {
             if (TAB.getInstance().getCPUManager().enableTracking()) {

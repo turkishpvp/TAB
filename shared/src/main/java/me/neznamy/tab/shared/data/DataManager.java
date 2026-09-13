@@ -6,6 +6,7 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
 
@@ -16,13 +17,16 @@ import java.util.regex.PatternSyntaxException;
 public class DataManager {
 
     /** Map of all servers, indexed by their name */
-    private final Map<String, Server> servers = new HashMap<>();
+    private final Map<String, Server> servers = new ConcurrentHashMap<>();
 
     /** Map of all server groups defined in global playerlist configuration */
     private final Map<String, ServerGroup> serverGroups = new HashMap<>();
 
     /** Map of all worlds, indexed by their name */
-    private final Map<String, World> worlds = new HashMap<>();
+    private final Map<String, World> worlds = new ConcurrentHashMap<>();
+
+    /** Compiled regex patterns, compiling on every check is expensive */
+    private final Map<String, Pattern> compiledPatterns = new ConcurrentHashMap<>();
 
     /** Global playerlist configuration, null if not loaded yet or feature is disabled */
     @Nullable
@@ -92,7 +96,7 @@ public class DataManager {
     public boolean matchesPattern(@NotNull String objectName, @NotNull String pattern) {
         if (pattern.startsWith("regex:")) {
             try {
-                return Pattern.compile(pattern.substring(6)).matcher(objectName).matches();
+                return compiledPatterns.computeIfAbsent(pattern, p -> Pattern.compile(p.substring(6))).matcher(objectName).matches();
             } catch (PatternSyntaxException e) {
                 // Invalid regex pattern, treat as literal match
                 return objectName.equals(pattern);

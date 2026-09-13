@@ -15,6 +15,7 @@ import me.neznamy.tab.shared.features.proxy.ProxySupport;
 import me.neznamy.tab.shared.features.types.*;
 import me.neznamy.tab.shared.platform.Scoreboard;
 import me.neznamy.tab.shared.platform.TabPlayer;
+import me.neznamy.tab.shared.platform.decorators.SafeScoreboard;
 import me.neznamy.tab.shared.util.DumpUtils;
 import me.neznamy.tab.shared.util.OnlinePlayers;
 import me.neznamy.tab.shared.util.cache.StringToComponentCache;
@@ -209,7 +210,7 @@ public class YellowNumber extends RefreshableFeature implements JoinListener, Qu
 
     @Override
     public void refresh(@NotNull TabPlayer refreshed, boolean force) {
-        if (refreshed.playerlistObjectiveData.value == null) return; // Player not loaded yet (refresh called before onJoin)
+        if (refreshed.playerlistObjectiveData.value == null || refreshed.playerlistObjectiveData.fancyValue == null) return; // Player not loaded yet (refresh called before onJoin)
         int value = getValue(refreshed);
         Property fancyValue = refreshed.playerlistObjectiveData.fancyValue;
         fancyValue.update();
@@ -288,6 +289,9 @@ public class YellowNumber extends RefreshableFeature implements JoinListener, Qu
     @Override
     public void onQuit(@NotNull TabPlayer disconnectedPlayer) {
         onlinePlayers.removePlayer(disconnectedPlayer);
+        for (TabPlayer viewer : onlinePlayers.getPlayers()) {
+            ((SafeScoreboard<?>) viewer.getScoreboard()).forgetScore(OBJECTIVE_NAME, disconnectedPlayer.getNickname());
+        }
     }
 
     @NotNull

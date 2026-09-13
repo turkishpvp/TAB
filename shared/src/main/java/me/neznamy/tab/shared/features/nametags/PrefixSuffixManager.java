@@ -27,6 +27,7 @@ public class PrefixSuffixManager extends RefreshableFeature implements GroupList
 
     @Override
     public void refresh(@NotNull TabPlayer refreshed, boolean force) {
+        if (refreshed.teamData.prefix == null || refreshed.teamData.suffix == null) return; // Player not loaded yet (refresh called before onJoin)
         if (force) {
             updateProperties(refreshed);
             updatePrefixSuffix(refreshed);

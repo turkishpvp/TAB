@@ -223,6 +223,7 @@ public class TAB extends TabAPI {
             return "&cFailed to enable due to an IO error. Check console for more info.";
         } catch (Throwable e) {
             errorManager.criticalError("Failed to enable. Did you just invent a new way to break the plugin by misconfiguring it?", e);
+            unloadAfterFailedLoad();
             kill();
             return "&cFailed to enable due to an internal plugin error. Check console for more info.";
         }
@@ -246,15 +247,28 @@ public class TAB extends TabAPI {
     }
 
     /**
+     * Unloads features which were already created and loaded before the load failed,
+     * otherwise their threads, tasks and listeners keep running forever.
+     */
+    private void unloadAfterFailedLoad() {
+        if (featureManager == null) return;
+        try {
+            featureManager.unload();
+        } catch (Throwable t) {
+            errorManager.criticalError("Failed to unload features after a failed load", t);
+        }
+    }
+
+    /**
      * Clears online player maps and arrays and cancels all tasks
      */
     private void kill() {
         pluginDisabled = true;
+        cpu.cancelAllTasks(); // Stop queued tasks first, so they do not run on cleared data
         data.clear();
         playersByName.clear();
         playersByTabListId.clear();
         onlinePlayers = new TabPlayer[0];
-        cpu.cancelAllTasks();
     }
 
     /**
@@ -295,7 +309,10 @@ public class TAB extends TabAPI {
         playersByName.remove(player.getName());
         playersByTabListId.remove(player.getTablistId());
         onlinePlayers = data.values().toArray(new TabPlayer[0]);
-        tablistTrackers.remove(player.getUniqueId()); // Player left, it is safe to remove their tracker
+        if (player.getTabListEntryTracker() != null) {
+            // Only remove own tracker, player may have already relogged and have a new one
+            tablistTrackers.remove(player.getUniqueId(), player.getTabListEntryTracker());
+        }
     }
 
     /**

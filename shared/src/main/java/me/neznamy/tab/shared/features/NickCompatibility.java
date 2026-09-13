@@ -72,7 +72,9 @@ public class NickCompatibility extends TabFeature implements EntryAddListener {
      */
     public void processNameChange(@NotNull TabPlayer player) {
         CpuManager cpu = TAB.getInstance().getCpu();
-        cpu.getProcessingThread().execute(new TimedCaughtTask(cpu, () -> {
+        // Registered teams are owned by nametag thread, modifying them from processing thread corrupts the maps
+        (nameTags != null ? nameTags.getCustomThread() : cpu.getProcessingThread()).execute(new TimedCaughtTask(cpu, () -> {
+            if (!player.isOnline()) return;
             if (nameTags != null && !player.teamData.isDisabled())
                 for (TabPlayer viewer : nameTags.getOnlinePlayers().getPlayers()) {
                     viewer.teamData.unregisterTeam(player);

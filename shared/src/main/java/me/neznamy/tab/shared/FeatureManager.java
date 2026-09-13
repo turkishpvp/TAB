@@ -112,10 +112,12 @@ public class FeatureManager {
      *          player with new group
      */
     public void onGroupChange(@NotNull TabPlayer player) {
+        if (!player.isOnline()) return; // Late group change (permission refresh, MySQL, API) after quit would register player again
         for (TabFeature f : values) {
             if (!(f instanceof GroupListener)) continue;
-            TimedCaughtTask task = new TimedCaughtTask(TAB.getInstance().getCpu(),
-                    () -> ((GroupListener) f).onGroupChange(player), f.getFeatureName(), CpuUsageCategory.GROUP_CHANGE);
+            TimedCaughtTask task = new TimedCaughtTask(TAB.getInstance().getCpu(), () -> {
+                if (player.isOnline()) ((GroupListener) f).onGroupChange(player);
+            }, f.getFeatureName(), CpuUsageCategory.GROUP_CHANGE);
             if (f instanceof CustomThreaded) {
                 ((CustomThreaded) f).getCustomThread().execute(task);
             } else {
@@ -526,9 +528,13 @@ public class FeatureManager {
      * @param   featureName
      *          Name of the feature it was previously registered with.
      */
-    public void unregisterFeature(@NotNull String featureName) {
-        features.remove(featureName);
+    public synchronized void unregisterFeature(@NotNull String featureName) {
+        TabFeature removed = features.remove(featureName);
         values = features.values().toArray(new TabFeature[0]);
+        if (removed instanceof RefreshableFeature) {
+            // Otherwise placeholders keep refreshing the dead feature (and keep it in memory) forever
+            TAB.getInstance().getPlaceholderManager().removeUsedFeature((RefreshableFeature) removed);
+        }
     }
 
     /**

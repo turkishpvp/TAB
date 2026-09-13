@@ -31,6 +31,7 @@ public class BelowNameTitleRefresher extends RefreshableFeature implements Custo
 
     @Override
     public void refresh(@NotNull TabPlayer refreshed, boolean force) {
+        if (refreshed.belowNameData.title == null) return; // Player not loaded yet (refresh called before onJoin)
         if (refreshed.belowNameData.disabled.get()) return;
         refreshed.getScoreboard().updateObjective(
                 BelowName.OBJECTIVE_NAME,

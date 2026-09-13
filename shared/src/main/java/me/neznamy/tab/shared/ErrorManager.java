@@ -15,6 +15,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.text.SimpleDateFormat;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * An error assistant to print internal errors into error file
@@ -34,6 +35,9 @@ public class ErrorManager {
 
     /** placeholder-errors.log file for errors thrown by placeholders */
     private final File placeholderErrorLog;
+
+    /** Last time each error was printed, used for rate limiting */
+    private final Map<String, Long> lastPrinted = new ConcurrentHashMap<>();
 
     /**
      * Constructs new instance.
@@ -110,7 +114,20 @@ public class ErrorManager {
      * @param   file
      *          file to print error to
      */
-    public synchronized void printError(@Nullable String message, @NotNull List<String> error, boolean intoConsoleToo, @NotNull File file) {
+    public void printError(@Nullable String message, @NotNull List<String> error, boolean intoConsoleToo, @NotNull File file) {
+        boolean console = intoConsoleToo || TAB.getInstance().getConfiguration() == null || TAB.getInstance().getConfiguration().getConfig().isDebugMode();
+        if (!console && file.length() >= TabConstants.MAX_LOG_SIZE) return; // Nothing would be written, do not even open the file
+        // Same error from refresh loops or netty threads can be thrown many times per second, write it at most once per second
+        String key = file.getName() + (message != null ? message : error.isEmpty() ? "" : error.get(0));
+        long now = System.currentTimeMillis();
+        Long last = lastPrinted.get(key);
+        if (last != null && now - last < 1000) return;
+        if (lastPrinted.size() > 1000) lastPrinted.clear();
+        lastPrinted.put(key, now);
+        printError0(message, error, intoConsoleToo, file);
+    }
+
+    private synchronized void printError0(@Nullable String message, @NotNull List<String> error, boolean intoConsoleToo, @NotNull File file) {
         try {
             if (!file.exists()) Files.createFile(file.toPath());
             try (BufferedWriter buf = new BufferedWriter(new FileWriter(file, true))) {

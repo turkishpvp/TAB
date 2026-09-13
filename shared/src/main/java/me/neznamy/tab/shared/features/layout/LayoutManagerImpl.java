@@ -74,8 +74,10 @@ public class LayoutManagerImpl extends RefreshableFeature implements LayoutManag
 
     @Override
     public void onJoin(@NotNull TabPlayer p) {
-        p.layoutData.sortingString = p.sortingData.fullTeamName;
-        sortedPlayers.put(p, p.sortingData.fullTeamName);
+        synchronized (sortedPlayers) {
+            p.layoutData.sortingString = p.sortingData.fullTeamName;
+            sortedPlayers.put(p, p.sortingData.fullTeamName);
+        }
         LayoutPattern highest = getHighestLayout(p);
         if (highest != null) {
             sendLayout(p, highest);
@@ -156,9 +158,13 @@ public class LayoutManagerImpl extends RefreshableFeature implements LayoutManag
     }
 
     public void updateTeamName(@NotNull TabPlayer p, @NotNull String teamName) {
-        sortedPlayers.remove(p);
-        p.layoutData.sortingString = teamName;
-        sortedPlayers.put(p, teamName);
+        if (!p.isOnline()) return; // Would put quit player back into sorted players
+        synchronized (sortedPlayers) {
+            // Key comparator uses sortingString, it must not change between remove and put
+            sortedPlayers.remove(p);
+            p.layoutData.sortingString = teamName;
+            sortedPlayers.put(p, teamName);
+        }
         tickAllLayouts();
     }
 

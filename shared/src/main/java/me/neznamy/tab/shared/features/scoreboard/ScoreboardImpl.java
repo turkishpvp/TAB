@@ -241,6 +241,16 @@ public class ScoreboardImpl extends RefreshableFeature implements me.neznamy.tab
         players.clear();
     }
 
+    /**
+     * Unregisters line features of this scoreboard from feature manager, used when removing API scoreboards.
+     */
+    public void unregisterLineFeatures() {
+        for (int i = 0; i < lines.size(); i++) {
+            TAB.getInstance().getFeatureManager().unregisterFeature(TabConstants.Feature.scoreboardLine(name, i));
+        }
+        TAB.getInstance().getPlaceholderManager().removeUsedFeature(this);
+    }
+
     @Override
     @NotNull
     public ThreadExecutor getCustomThread() {

@@ -124,30 +124,40 @@ public class PlayerPlaceholderImpl extends TabPlaceholder implements PlayerPlace
     }
 
     @NotNull
-    public synchronized String getLastValue(@Nullable TabPlayer p) {
+    public String getLastValue(@Nullable TabPlayer p) {
         if (p == null) return identifier;
         String value = p.lastPlaceholderEvaluatedValues.get(this);
         if (value != null) return value;
-
-        // Value not present, initialize
-        p.lastPlaceholderReturnedValues.put(this, identifier);
-        p.lastPlaceholderEvaluatedValues.put(this, replacements.findReplacement(identifier));
-        hasValueChanged(p, request(p), false);
+        initialize(p);
         return p.lastPlaceholderEvaluatedValues.get(this);
     }
 
     @Override
     @NotNull
-    public synchronized String getLastReturnedValue(@Nullable TabPlayer player) {
+    public String getLastReturnedValue(@Nullable TabPlayer player) {
         if (player == null) return identifier;
         String value = player.lastPlaceholderReturnedValues.get(this);
         if (value != null) return value;
-
-        // Value not present, initialize
-        player.lastPlaceholderReturnedValues.put(this, identifier);
-        player.lastPlaceholderEvaluatedValues.put(this, replacements.findReplacement(identifier));
-        hasValueChanged(player, request(player), false);
+        initialize(player);
         return player.lastPlaceholderReturnedValues.get(this);
+    }
+
+    /**
+     * Initializes value for player. The request runs without any shared lock (a slow placeholder
+     * would otherwise stall every thread parsing it and could deadlock with the manager lock),
+     * and only fully computed values are published, so other threads never see a temporary
+     * raw identifier (#1724, #1725).
+     *
+     * @param   player
+     *          Player to initialize value for
+     */
+    private void initialize(@NotNull TabPlayer player) {
+        String returned = request(player);
+        if (returned == null || returned.equals(ERROR_VALUE)) returned = identifier;
+        String evaluated = returned.equals(identifier) ? replacements.findReplacement(identifier) : evaluate(returned, player);
+        if (player.lastPlaceholderReturnedValues.putIfAbsent(this, returned) != null) return; // Another thread was faster
+        player.lastPlaceholderEvaluatedValues.putIfAbsent(this, evaluated);
+        player.expansionData.setPlaceholderValue(identifier, evaluated);
     }
 
     @Override

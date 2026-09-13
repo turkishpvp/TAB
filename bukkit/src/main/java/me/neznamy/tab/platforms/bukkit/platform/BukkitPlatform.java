@@ -55,6 +55,8 @@ import org.jetbrains.annotations.Nullable;
 
 import java.io.File;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.BiConsumer;
 
 /**
@@ -194,14 +196,28 @@ public class BukkitPlatform implements BackendPlatform {
     public void registerSyncPlaceholder(@NotNull String identifier) {
         String syncedPlaceholder = "%" + identifier.substring(6);
         PlayerPlaceholderImpl[] ppl = new PlayerPlaceholderImpl[1];
+        // One main thread task per refresh cycle for all players instead of one task per player
+        Set<TabPlayer> pending = ConcurrentHashMap.newKeySet();
+        AtomicBoolean scheduled = new AtomicBoolean();
         ppl[0] = TAB.getInstance().getPlaceholderManager().registerPlayerPlaceholder(identifier, p -> {
-            Bukkit.getScheduler().runTask(plugin, () -> {
-                long time = System.nanoTime();
-                ppl[0].updateValue(p, placeholderAPI ? PlaceholderAPI.setPlaceholders((Player) p.getPlayer(), syncedPlaceholder) : identifier);
-                long totalTime =  System.nanoTime()-time;
-                TAB.getInstance().getCPUManager().addPlaceholderTime(identifier, totalTime);
-                TAB.getInstance().getCpu().addTime(TAB.getInstance().getPlaceholderManager().getFeatureName(), TabConstants.CpuUsageCategory.PLACEHOLDER_REQUEST, totalTime);
-            });
+            pending.add((TabPlayer) p);
+            if (scheduled.compareAndSet(false, true)) {
+                Bukkit.getScheduler().runTask(plugin, () -> {
+                    scheduled.set(false);
+                    long time = System.nanoTime();
+                    Map<TabPlayer, String> values = new HashMap<>();
+                    for (TabPlayer player : pending) {
+                        pending.remove(player);
+                        if (!player.isOnline()) continue;
+                        values.put(player, placeholderAPI ? PlaceholderAPI.setPlaceholders((Player) player.getPlayer(), syncedPlaceholder) : identifier);
+                    }
+                    long totalTime =  System.nanoTime()-time;
+                    TAB.getInstance().getCPUManager().addPlaceholderTime(identifier, totalTime);
+                    TAB.getInstance().getCpu().addTime(TAB.getInstance().getPlaceholderManager().getFeatureName(), TabConstants.CpuUsageCategory.PLACEHOLDER_REQUEST, totalTime);
+                    // Feature refreshes (and their packets) belong to TAB's thread, not the main thread
+                    TAB.getInstance().getCPUManager().runTask(() -> values.forEach((player, value) -> ppl[0].updateValue(player, value)));
+                });
+            }
             return null;
         });
     }

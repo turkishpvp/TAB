@@ -114,7 +114,8 @@ public abstract class TabPlaceholder implements Placeholder {
             if (s.equals(identifier)) continue; // Prevent infinite loop when placeholder returns itself
             if (PlaceholderIdentifier.isRelational(s)) continue; // Relational placeholders are handled separately
             if ((identifier.startsWith("%sync:") && ("%" + identifier.substring(6)).equals(s))) continue; // Self, but as sync variant
-            PlaceholderReference nested = TAB.getInstance().getPlaceholderManager().getPlaceholderReference(s);
+            PlaceholderReference nested = TAB.getInstance().getPlaceholderManager().getNestedPlaceholderReference(s);
+            if (nested == null) continue; // Not a placeholder (e.g. "45% | 12%") or limit reached
             nested.addParent(reference);
             string = string.replace(s, nested.getHandle().parse(player));
         }

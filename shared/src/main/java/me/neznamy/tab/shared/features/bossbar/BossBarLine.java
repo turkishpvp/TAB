@@ -109,6 +109,18 @@ public class BossBarLine implements BossBar {
     }
 
     /**
+     * Unregisters features and placeholders created for this bossbar, used when removing API bossbars.
+     */
+    public void unregisterFeatures() {
+        TAB.getInstance().getFeatureManager().unregisterFeature(TabConstants.Feature.bossBarTitle(name));
+        TAB.getInstance().getFeatureManager().unregisterFeature(TabConstants.Feature.bossBarProgress(name));
+        TAB.getInstance().getFeatureManager().unregisterFeature(TabConstants.Feature.bossBarColor(name));
+        TAB.getInstance().getFeatureManager().unregisterFeature(TabConstants.Feature.bossBarStyle(name));
+        TAB.getInstance().getPlaceholderManager().unregisterPlaceholder(TabConstants.Placeholder.bossbarAnnounceTotal(name));
+        TAB.getInstance().getPlaceholderManager().unregisterPlaceholder(TabConstants.Placeholder.bossbarAnnounceLeft(name));
+    }
+
+    /**
      * Returns true if condition is null or is met, false otherwise.
      *
      * @param   p

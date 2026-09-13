@@ -60,10 +60,6 @@ public class Property {
     /** Relational placeholders in the text in the same order they are used */
     private PlaceholderReference[] relPlaceholders;
 
-    /** String builder to avoid reallocation on every update call */
-    @NotNull
-    private final StringBuilder stringBuilder = new StringBuilder();
-
     /**
      * Constructs new instance with given parameters and prepares
      * the formatter for use by detecting placeholders and reformatting the text.
@@ -253,7 +249,8 @@ public class Property {
             // Single element - fast path
             string = elements[0].get(owner);
         } else {
-            stringBuilder.setLength(0);
+            // Local builder, property may be updated from API and refresh threads at the same time
+            StringBuilder stringBuilder = new StringBuilder();
             for (Element element : elements) {
                 stringBuilder.append(element.get(owner));
             }
@@ -262,7 +259,8 @@ public class Property {
         string = EnumChatFormat.color(string); // Support & + color being in different elements
         if (!lastReplacedValue.equals(string)) {
             lastReplacedValue = string;
-            mayContainRelPlaceholders = lastReplacedValue.indexOf('%') != -1 || lastReplacedValue.contains("<rel_");
+            // Both direct and nested relational placeholders keep their "rel_" identifier in the replaced value
+            mayContainRelPlaceholders = relPlaceholders.length > 0 || lastReplacedValue.contains("rel_");
             if (name != null) {
                 owner.expansionData.setPropertyValue(name, lastReplacedValue);
             }
@@ -300,7 +298,8 @@ public class Property {
         // Nested placeholders
         for (String identifier : PlaceholderManagerImpl.detectPlaceholders(format)) {
             if (!PlaceholderIdentifier.isRelational(identifier)) continue;
-            PlaceholderReference reference = TAB.getInstance().getPlaceholderManager().getPlaceholderReference(identifier);
+            PlaceholderReference reference = TAB.getInstance().getPlaceholderManager().getNestedPlaceholderReference(identifier);
+            if (reference == null) continue;
             format = format.replace(reference.getIdentifier(), EnumChatFormat.color(((RelationalPlaceholderImpl)reference.getHandle()).getLastValue(viewer, owner)));
             if (listener != null) listener.addUsedPlaceholder(identifier);
         }

@@ -98,6 +98,7 @@ public class PlayerList extends RefreshableFeature implements TabListFormatManag
      *          Whether player's actual format should be used or {@code null} for reset
      */
     public void formatPlayerForEveryone(@NotNull TabPlayer player, boolean format) {
+        if (!player.isOnline()) return; // Would add forced display name of quit player to every viewer
         if (player.tablistData.disabled.get()) return;
         for (TabPlayer viewer : TAB.getInstance().getOnlinePlayers()) {
             // TODO This probably needs some layout check to make sure it does not use layout entry names for player names

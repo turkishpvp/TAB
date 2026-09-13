@@ -116,11 +116,11 @@ public class ScoreboardManagerImpl extends RefreshableFeature implements Scorebo
             connectedPlayer.scoreboardData.joinDelayed = true;
             customThread.executeLater(new TimedCaughtTask(TAB.getInstance().getCpu(), () -> {
                 if (!connectedPlayer.isOnline()) return; // Player disconnected before the delay ran out
-                setScoreboardVisible(connectedPlayer, configuration.isHiddenByDefault() == (toggleManager != null && toggleManager.contains(connectedPlayer)), false);
+                setScoreboardVisible0(connectedPlayer, configuration.isHiddenByDefault() == (toggleManager != null && toggleManager.contains(connectedPlayer)), false);
                 connectedPlayer.scoreboardData.joinDelayed = false;
             }, getFeatureName(), TabConstants.CpuUsageCategory.PLAYER_JOIN), configuration.getJoinDelay());
         } else {
-            setScoreboardVisible(connectedPlayer, configuration.isHiddenByDefault() == (toggleManager != null && toggleManager.contains(connectedPlayer)), false);
+            setScoreboardVisible0(connectedPlayer, configuration.isHiddenByDefault() == (toggleManager != null && toggleManager.contains(connectedPlayer)), false);
         }
     }
 
@@ -313,9 +313,14 @@ public class ScoreboardManagerImpl extends RefreshableFeature implements Scorebo
         if (removed == null) {
             throw new IllegalArgumentException("No registered scoreboard found with name " + name);
         }
+        customThread.execute(new TimedCaughtTask(TAB.getInstance().getCpu(), () -> removeScoreboard0(removed),
+                getFeatureName(), "Removing API Scoreboard"));
+    }
 
-        Set<TabPlayer> players = removed.getPlayers();
+    private void removeScoreboard0(@NonNull ScoreboardImpl removed) {
+        Set<TabPlayer> players = new HashSet<>(removed.getPlayers()); // Copy, unregister() clears the set
         removed.unregister();
+        removed.unregisterLineFeatures();
         for (TabPlayer p : players) {
             p.scoreboardData.forcedScoreboard = null;
             sendHighestScoreboard(p);
@@ -328,12 +333,8 @@ public class ScoreboardManagerImpl extends RefreshableFeature implements Scorebo
             throw new IllegalArgumentException("This scoreboard (" + scoreboard.getName() + ") is not registered.");
         }
 
-        Set<TabPlayer> players = ((ScoreboardImpl)scoreboard).getPlayers();
-        scoreboard.unregister();
-        for (TabPlayer p : players) {
-            p.scoreboardData.forcedScoreboard = null;
-            sendHighestScoreboard(p);
-        }
+        customThread.execute(new TimedCaughtTask(TAB.getInstance().getCpu(), () -> removeScoreboard0((ScoreboardImpl) scoreboard),
+                getFeatureName(), "Removing API Scoreboard"));
     }
 
     @Override
@@ -387,7 +388,12 @@ public class ScoreboardManagerImpl extends RefreshableFeature implements Scorebo
     @Override
     public void setScoreboardVisible(@NonNull me.neznamy.tab.api.TabPlayer p, boolean visible, boolean sendToggleMessage) {
         ensureActive();
-        TabPlayer player = (TabPlayer) p;
+        // Called from commands and API on other threads, state of this feature is only touched by its own thread
+        customThread.execute(new TimedCaughtTask(TAB.getInstance().getCpu(), () -> setScoreboardVisible0((TabPlayer) p, visible, sendToggleMessage),
+                getFeatureName(), "Toggling scoreboard"));
+    }
+
+    private void setScoreboardVisible0(@NonNull TabPlayer player, boolean visible, boolean sendToggleMessage) {
         if (player.scoreboardData.visible == visible) return;
         if (visible) {
             player.scoreboardData.visible = true;
@@ -422,7 +428,9 @@ public class ScoreboardManagerImpl extends RefreshableFeature implements Scorebo
     @Override
     public void toggleScoreboard(@NonNull me.neznamy.tab.api.TabPlayer player, boolean sendToggleMessage) {
         ensureActive();
-        setScoreboardVisible(player, !((TabPlayer)player).scoreboardData.visible, sendToggleMessage);
+        customThread.execute(new TimedCaughtTask(TAB.getInstance().getCpu(),
+                () -> setScoreboardVisible0((TabPlayer) player, !((TabPlayer)player).scoreboardData.visible, sendToggleMessage),
+                getFeatureName(), "Toggling scoreboard"));
     }
 
     @Override

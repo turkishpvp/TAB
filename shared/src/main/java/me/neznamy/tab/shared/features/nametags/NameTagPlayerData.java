@@ -60,11 +60,11 @@ public class NameTagPlayerData {
 
     /** Reasons why player's nametag is hidden for everyone */
     @NotNull
-    private final EnumSet<NameTagInvisibilityReason> nameTagInvisibilityReasons = EnumSet.noneOf(NameTagInvisibilityReason.class);
+    private final Set<NameTagInvisibilityReason> nameTagInvisibilityReasons = Collections.synchronizedSet(EnumSet.noneOf(NameTagInvisibilityReason.class)); // Also modified by placeholder thread
 
     /** Reasons why player's nametag is hidden for specific players */
     @NotNull
-    private final Map<TabPlayer, EnumSet<NameTagInvisibilityReason>> nameTagInvisibilityReasonsRelational = new WeakHashMap<>();
+    private final Map<TabPlayer, EnumSet<NameTagInvisibilityReason>> nameTagInvisibilityReasonsRelational = Collections.synchronizedMap(new WeakHashMap<>()); // Read by API from other threads
 
     /** Teams registered to this player mapped as team owner to team name */
     private final Map<TabPlayer, String> registeredTeams = new HashMap<>();

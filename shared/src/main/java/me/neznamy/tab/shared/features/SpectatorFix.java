@@ -35,6 +35,7 @@ public class SpectatorFix extends TabFeature implements JoinListener, Loadable, 
     private void updatePlayer(@NotNull TabPlayer viewer, boolean realGameMode, boolean mutually) {
         for (TabPlayer target : TAB.getInstance().getOnlinePlayers()) {
             if (viewer == target) continue;
+            if (!target.isOnline()) continue;
             if (!viewer.hasPermission(TabConstants.Permission.SPECTATOR_BYPASS)) {
                 if (realGameMode) {
                     viewer.getTabList().unblockSpectator(target);
@@ -54,6 +55,7 @@ public class SpectatorFix extends TabFeature implements JoinListener, Loadable, 
 
     @Override
     public void onJoin(@NotNull TabPlayer p) {
+        if (!p.isOnline()) return; // Quit was processed before this task ran, entries would never be removed
         updatePlayer(p, false, true);
     }
 

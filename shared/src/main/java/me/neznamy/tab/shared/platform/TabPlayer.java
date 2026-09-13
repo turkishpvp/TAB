@@ -93,10 +93,10 @@ public abstract class TabPlayer implements me.neznamy.tab.api.TabPlayer {
      * Player's load status, {@code true} when player is fully loaded,
      * {@code false} if not yet
      */
-    @Getter private boolean loaded;
+    @Getter private volatile boolean loaded;
 
     /** Flag tracking whether the player is online or not */
-    @Getter private boolean online = true;
+    @Getter private volatile boolean online = true;
 
     /** Data for sorting */
     public final SortingPlayerData sortingData = new SortingPlayerData();
@@ -332,6 +332,7 @@ public abstract class TabPlayer implements me.neznamy.tab.api.TabPlayer {
      */
     public void markOffline() {
         online = false;
+        loaded = false; // Stops late placeholder/group updates from registering the player into features again
     }
 
     /**
@@ -345,13 +346,16 @@ public abstract class TabPlayer implements me.neznamy.tab.api.TabPlayer {
     public boolean canSee(@NotNull TabPlayer target) {
         if (target == this) return true;
         if (!VanishIntegration.getHandlers().isEmpty()) {
-            try {
-                for (VanishIntegration i : VanishIntegration.getHandlers()) {
-                    if (!i.canSee(this, target)) return false;
+            for (int attempt = 0; ; attempt++) {
+                try {
+                    for (VanishIntegration i : VanishIntegration.getHandlers()) {
+                        if (!i.canSee(this, target)) return false;
+                    }
+                    break;
+                } catch (ConcurrentModificationException e) {
+                    // PV error, try again, but do not recurse forever
+                    if (attempt == 5) break;
                 }
-            } catch (ConcurrentModificationException e) {
-                // PV error, try again
-                return canSee(target);
             }
         }
         return !target.isVanished() || hasPermission(TabConstants.Permission.SEE_VANISHED);
