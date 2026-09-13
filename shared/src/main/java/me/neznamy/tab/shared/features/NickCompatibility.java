@@ -32,7 +32,14 @@ public class NickCompatibility extends TabFeature implements EntryAddListener {
     @Nullable private final YellowNumber yellownumber = TAB.getInstance().getFeatureManager().getFeature(TabConstants.Feature.YELLOW_NUMBER);
     @Nullable private final ProxySupport proxy = TAB.getInstance().getFeatureManager().getFeature(TabConstants.Feature.PROXY_SUPPORT);
 
-    public synchronized void onEntryAdd(TabPlayer packetReceiver, UUID id, String name) {
+    public void onEntryAdd(TabPlayer packetReceiver, UUID id, String name) {
+        // Fast path without the global lock, this runs on netty threads for every tablist add entry
+        TabPlayer receiverEntry = TAB.getInstance().getPlayerByTabListUUID(id);
+        if (proxy == null && (receiverEntry != packetReceiver || receiverEntry.getNickname().equals(name))) return;
+        onEntryAdd0(packetReceiver, id, name);
+    }
+
+    private synchronized void onEntryAdd0(TabPlayer packetReceiver, UUID id, String name) {
         TabPlayer packetPlayer = TAB.getInstance().getPlayerByTabListUUID(id);
         // Using "packetPlayer == packetReceiver" for now, as this should technically not matter, but it does
         // A nick plugin author said the nickname will be different for other players but same for nicking player,

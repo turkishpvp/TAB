@@ -1,9 +1,7 @@
 package me.neznamy.tab.shared.chat.component;
 
-import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
-import lombok.Setter;
 import me.neznamy.tab.shared.chat.TabStyle;
 import me.neznamy.tab.shared.chat.EnumChatFormat;
 import me.neznamy.tab.shared.chat.TabTextColor;
@@ -16,13 +14,32 @@ import java.util.List;
  * A component of "text" type that contains text to display.
  */
 @Getter
-@Setter
-@AllArgsConstructor
 @NoArgsConstructor
 public class TabTextComponent extends TabComponent {
 
     @NotNull
     protected String text;
+
+    /**
+     * Constructs new instance with given text.
+     *
+     * @param   text
+     *          Component text
+     */
+    public TabTextComponent(@NotNull String text) {
+        this.text = text;
+    }
+
+    /**
+     * Sets text of this component.
+     *
+     * @param   text
+     *          New text
+     */
+    public void setText(@NotNull String text) {
+        this.text = text;
+        legacyText = null;
+    }
 
     /**
      * Constructs new instance using given text and extra components.
@@ -61,12 +78,20 @@ public class TabTextComponent extends TabComponent {
         modifier.setColor(color);
     }
 
+    /** Cached legacy text, components are not modified after being built (same assumption as convert()) */
+    @Nullable
+    @Getter(lombok.AccessLevel.NONE)
+    private String legacyText;
+
     @Override
     @NotNull
     public String toLegacyText() {
-        StringBuilder builder = new StringBuilder();
-        append(builder, "");
-        return builder.toString();
+        if (legacyText == null) {
+            StringBuilder builder = new StringBuilder();
+            append(builder, "");
+            legacyText = builder.toString();
+        }
+        return legacyText;
     }
 
     /**

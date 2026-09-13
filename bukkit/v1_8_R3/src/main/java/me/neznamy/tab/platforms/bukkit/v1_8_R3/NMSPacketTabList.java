@@ -213,6 +213,33 @@ public class NMSPacketTabList extends TrackedTabList<BukkitTabPlayer> {
      *          Packet to send
      */
     private void sendPacket(@NotNull Packet<?> packet) {
-        ((CraftPlayer)player.getPlayer()).getHandle().playerConnection.sendPacket(packet);
+        NMSImplementationProvider.queue(player).send(packet);
+    }
+
+    /**
+     * Merges two adjacent player info packets created by TAB with the same update action into one.
+     * Only called for packets sent through TAB's own queue, so mutating them is safe.
+     *
+     * @param   first
+     *          Packet queued first
+     * @param   second
+     *          Packet queued right after
+     * @return  Merged packet or {@code null} if packets cannot be merged
+     */
+    @Nullable
+    @SneakyThrows
+    @SuppressWarnings("unchecked")
+    static Object merge(@NotNull Object first, @NotNull Object second) {
+        if (!(first instanceof PacketPlayOutPlayerInfo) || !(second instanceof PacketPlayOutPlayerInfo)) return null;
+        Object action = ACTION.get(first);
+        if (action != ACTION.get(second)) return null;
+        if (action != EnumPlayerInfoAction.UPDATE_DISPLAY_NAME && action != EnumPlayerInfoAction.UPDATE_LATENCY &&
+                action != EnumPlayerInfoAction.UPDATE_GAME_MODE) return null;
+        List<PlayerInfoData> firstEntries = (List<PlayerInfoData>) PLAYERS.get(first);
+        List<PlayerInfoData> secondEntries = (List<PlayerInfoData>) PLAYERS.get(second);
+        // ponytail: fixed cap keeps packets far below 1.8 client's 2 MiB limit, no need for byte counting
+        if (firstEntries.size() + secondEntries.size() > 256) return null;
+        firstEntries.addAll(secondEntries);
+        return first;
     }
 }

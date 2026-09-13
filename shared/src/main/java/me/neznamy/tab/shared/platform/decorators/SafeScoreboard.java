@@ -49,6 +49,9 @@ public abstract class SafeScoreboard<T extends TabPlayer> implements Scoreboard 
     /** Registered teams */
     private final Map<String, Team> teams = new ConcurrentHashMap<>();
 
+    /** Registered teams by their entries, for O(1) anti-override lookups on netty threads */
+    private final Map<String, Team> teamsByEntry = new ConcurrentHashMap<>();
+
     @Override
     public synchronized void registerObjective(@NonNull String objectiveName, @NonNull TabComponent title,
                                         @NonNull HealthDisplay display, @Nullable TabComponent numberFormat) {
@@ -112,6 +115,8 @@ public abstract class SafeScoreboard<T extends TabPlayer> implements Scoreboard 
             score = new Score(objective, scoreHolder, value, displayName, numberFormat);
             objective.getScores().put(scoreHolder, score);
         } else {
+            // Components come from caches, identity check is enough to detect no change
+            if (score.getValue() == value && score.getDisplayName() == displayName && score.getNumberFormat() == numberFormat) return;
             score.update(value, displayName, numberFormat);
         }
         if (frozen) return;
@@ -143,6 +148,9 @@ public abstract class SafeScoreboard<T extends TabPlayer> implements Scoreboard 
         }
         Team team = new Team(createTeam(name), name, prefix, suffix, visibility, collision, players, options, color);
         teams.put(name, team);
+        for (String entry : players) {
+            teamsByEntry.put(entry, team);
+        }
         if (frozen) return;
         registerTeam(team);
     }
@@ -153,6 +161,9 @@ public abstract class SafeScoreboard<T extends TabPlayer> implements Scoreboard 
         if (team == null) {
             error("Tried to unregister non-existing team %s for player ", teamName);
             return;
+        }
+        for (String entry : team.getPlayers()) {
+            teamsByEntry.remove(entry, team);
         }
         if (frozen) return;
         unregisterTeam(team);
@@ -373,10 +384,7 @@ public abstract class SafeScoreboard<T extends TabPlayer> implements Scoreboard 
 
     @Nullable
     private Team getExpectedTeam(@NotNull String player) {
-        for (Team team : teams.values()) {
-            if (team.getPlayers().contains(player)) return team;
-        }
-        return null;
+        return teamsByEntry.get(player);
     }
 
     /**
@@ -410,7 +418,9 @@ public abstract class SafeScoreboard<T extends TabPlayer> implements Scoreboard 
         //not logging the same message for every online player who received the packet
         if (!message.equals(lastTeamOverrideMessage)) {
             lastTeamOverrideMessage = message;
-            TAB.getInstance().getErrorManager().logAntiOverride(message);
+            // Called from netty threads, file IO belongs to TAB's thread
+            String finalMessage = message;
+            TAB.getInstance().getCPUManager().runTask(() -> TAB.getInstance().getErrorManager().logAntiOverride(finalMessage));
         }
     }
 

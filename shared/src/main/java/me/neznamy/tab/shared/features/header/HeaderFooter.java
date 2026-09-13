@@ -50,7 +50,7 @@ public class HeaderFooter extends RefreshableFeature implements HeaderFooterMana
     public void unload() {
         for (TabPlayer p : TAB.getInstance().getOnlinePlayers()) {
             if (p.headerFooterData.activeDesign == null) continue;
-            p.getTabList().setPlayerListHeaderFooter(null, null);
+            clearHeaderFooter(p);
         }
     }
 
@@ -67,7 +67,7 @@ public class HeaderFooter extends RefreshableFeature implements HeaderFooterMana
             if (highest != null) {
                 sendHeaderFooter(player);
             } else {
-                player.getTabList().setPlayerListHeaderFooter(null, null);
+                clearHeaderFooter(player);
             }
         }
     }
@@ -125,7 +125,16 @@ public class HeaderFooter extends RefreshableFeature implements HeaderFooterMana
         } else {
             footer = "";
         }
+        if (header.equals(player.headerFooterData.lastHeader) && footer.equals(player.headerFooterData.lastFooter)) return;
+        player.headerFooterData.lastHeader = header;
+        player.headerFooterData.lastFooter = footer;
         player.getTabList().setPlayerListHeaderFooter(headerCache.get(header), footerCache.get(footer));
+    }
+
+    private void clearHeaderFooter(@NotNull TabPlayer player) {
+        player.headerFooterData.lastHeader = null;
+        player.headerFooterData.lastFooter = null;
+        player.getTabList().setPlayerListHeaderFooter(null, null);
     }
 
     // ------------------

@@ -12,6 +12,9 @@ import org.bukkit.craftbukkit.v1_8_R3.entity.CraftPlayer;
 import org.jetbrains.annotations.NotNull;
 
 import java.lang.reflect.Field;
+import java.lang.reflect.Modifier;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 
 /**
@@ -27,6 +30,10 @@ public class NMSPacketScoreboard extends SafeScoreboard<BukkitTabPlayer> {
     private static final Field TeamPacket_NAME = ReflectionUtils.getFields(PacketPlayOutScoreboardTeam.class, String.class).get(0);
     private static final Field TeamPacket_ACTION = ReflectionUtils.getInstanceFields(PacketPlayOutScoreboardTeam.class, int.class).get(1);
     private static final Field TeamPacket_PLAYERS = ReflectionUtils.getOnlyField(PacketPlayOutScoreboardTeam.class, Collection.class);
+    private static final Field[] TEAM_PACKET_FIELDS = Arrays.stream(PacketPlayOutScoreboardTeam.class.getDeclaredFields())
+            .filter(field -> !Modifier.isStatic(field.getModifiers()))
+            .peek(field -> field.setAccessible(true))
+            .toArray(Field[]::new);
 
     private static final Field Objective_OBJECTIVE_NAME = ReflectionUtils.getFields(PacketPlayOutScoreboardObjective.class, String.class).get(0);
     private static final Field Objective_METHOD = ReflectionUtils.getOnlyField(PacketPlayOutScoreboardObjective.class, int.class);
@@ -104,17 +111,34 @@ public class NMSPacketScoreboard extends SafeScoreboard<BukkitTabPlayer> {
 
     @Override
     public void updateTeam(@NonNull Team team) {
-        updateTeamProperties(team);
+        if (!updateTeamProperties(team)) return; // Nothing that 1.8 client receives has changed
         sendPacket(new PacketPlayOutScoreboardTeam((ScoreboardTeam) team.getPlatformTeam(), TeamAction.UPDATE));
     }
 
-    private void updateTeamProperties(@NonNull Team team) {
+    /**
+     * Applies team properties to the NMS team.
+     *
+     * @param   team
+     *          Team to apply properties of
+     * @return  {@code true} if anything changed, {@code false} if not
+     */
+    private boolean updateTeamProperties(@NonNull Team team) {
         ScoreboardTeam t = (ScoreboardTeam) team.getPlatformTeam();
-        t.setAllowFriendlyFire((team.getOptions() & 0x01) != 0);
-        t.setCanSeeFriendlyInvisibles((team.getOptions() & 0x02) != 0);
-        t.setNameTagVisibility(visibilities[team.getVisibility().ordinal()]);
-        t.setPrefix(maybeCut(team.getPrefix().toLegacyText(), Limitations.TEAM_PREFIX_SUFFIX_PRE_1_13));
-        t.setSuffix(maybeCut(team.getSuffix().toLegacyText(), Limitations.TEAM_PREFIX_SUFFIX_PRE_1_13));
+        boolean friendlyFire = (team.getOptions() & 0x01) != 0;
+        boolean seeInvisibles = (team.getOptions() & 0x02) != 0;
+        ScoreboardTeamBase.EnumNameTagVisibility visibility = visibilities[team.getVisibility().ordinal()];
+        String prefix = maybeCut(team.getPrefix().toLegacyText(), Limitations.TEAM_PREFIX_SUFFIX_PRE_1_13);
+        String suffix = maybeCut(team.getSuffix().toLegacyText(), Limitations.TEAM_PREFIX_SUFFIX_PRE_1_13);
+        if (t.allowFriendlyFire() == friendlyFire && t.canSeeFriendlyInvisibles() == seeInvisibles &&
+                t.getNameTagVisibility() == visibility && prefix.equals(t.getPrefix()) && suffix.equals(t.getSuffix())) {
+            return false;
+        }
+        t.setAllowFriendlyFire(friendlyFire);
+        t.setCanSeeFriendlyInvisibles(seeInvisibles);
+        t.setNameTagVisibility(visibility);
+        t.setPrefix(prefix);
+        t.setSuffix(suffix);
+        return true;
     }
 
     @Override
@@ -136,12 +160,25 @@ public class NMSPacketScoreboard extends SafeScoreboard<BukkitTabPlayer> {
                 Collection<String> players = (Collection<String>) TeamPacket_PLAYERS.get(packet);
                 if (players != null) {
                     Collection<String> modified = onTeamPacket(action, (String) TeamPacket_NAME.get(packet), players);
-                    players.clear();
-                    players.addAll(modified);
+                    // Server sends the same packet instance to many players from multiple event loops, never mutate it
+                    if (modified.size() != players.size()) {
+                        return copyTeamPacket(packet, modified);
+                    }
                 }
             }
         }
         return packet;
+    }
+
+    @SneakyThrows
+    @NotNull
+    private static PacketPlayOutScoreboardTeam copyTeamPacket(@NotNull Object packet, @NotNull Collection<String> players) {
+        PacketPlayOutScoreboardTeam copy = new PacketPlayOutScoreboardTeam();
+        for (Field field : TEAM_PACKET_FIELDS) {
+            field.set(copy, field.get(packet));
+        }
+        TeamPacket_PLAYERS.set(copy, new ArrayList<>(players));
+        return copy;
     }
 
     /**
@@ -151,7 +188,7 @@ public class NMSPacketScoreboard extends SafeScoreboard<BukkitTabPlayer> {
      *          Packet to send
      */
     private void sendPacket(@NotNull Packet<?> packet) {
-        ((CraftPlayer)player.getPlayer()).getHandle().playerConnection.sendPacket(packet);
+        NMSImplementationProvider.queue(player).send(packet);
     }
 
     @NotNull

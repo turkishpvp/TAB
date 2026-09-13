@@ -32,6 +32,9 @@ public abstract class TabComponent {
     /** Empty component to avoid recreating one over and over */
     public static final LegacyTextComponent EMPTY_LEGACY_TEXT = new LegacyTextComponent("");
 
+    /** Hex digits for gradient formatting, String.format per character is too slow for refreshes */
+    private static final char[] HEX = "0123456789ABCDEF".toCharArray();
+
     /** Formatter to convert gradient into TAB's #RRGGBB spam */
     private static final TriFunction<TabTextColor, String, TabTextColor, String> TABGradientFormatter = (start, text, end) -> {
         if (text.length() == 1) {
@@ -86,7 +89,8 @@ public abstract class TabComponent {
             int red = (int) (start.getRed() + (float)(end.getRed() - start.getRed())/(length-1)*i);
             int green = (int) (start.getGreen() + (float)(end.getGreen() - start.getGreen())/(length-1)*i);
             int blue = (int) (start.getBlue() + (float)(end.getBlue() - start.getBlue())/(length-1)*i);
-            sb.append(String.format("#%02X%02X%02X", red, green, blue));
+            sb.append('#').append(HEX[red >> 4 & 0xF]).append(HEX[red & 0xF]).append(HEX[green >> 4 & 0xF]).append(HEX[green & 0xF])
+                    .append(HEX[blue >> 4 & 0xF]).append(HEX[blue & 0xF]);
             sb.append(modifiers.get(i).getMagicCodes());
             sb.append(characters.get(i));
         }

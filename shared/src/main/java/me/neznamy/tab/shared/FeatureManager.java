@@ -28,6 +28,7 @@ import me.neznamy.tab.shared.features.proxy.ProxySupportConfiguration;
 import me.neznamy.tab.shared.features.scoreboard.ScoreboardManagerImpl;
 import me.neznamy.tab.shared.features.sorting.Sorting;
 import me.neznamy.tab.shared.features.types.*;
+import me.neznamy.tab.shared.platform.Scoreboard;
 import me.neznamy.tab.shared.platform.TabPlayer;
 import me.neznamy.tab.shared.platform.decorators.TrackedTabList;
 import me.neznamy.tab.shared.proxy.ProxyPlatform;
@@ -282,6 +283,8 @@ public class FeatureManager {
      *          Objective name
      */
     public void onDisplayObjective(@NotNull TabPlayer packetReceiver, int slot, @Nullable String objective) {
+        // Only listener (scoreboard) acts on sidebar only, avoid a task per packet on netty threads
+        if (slot != Scoreboard.DisplaySlot.SIDEBAR.ordinal()) return;
         for (TabFeature f : values) {
             if (!(f instanceof DisplayObjectiveListener)) continue;
             TimedCaughtTask task = new TimedCaughtTask(TAB.getInstance().getCpu(),
@@ -305,6 +308,8 @@ public class FeatureManager {
      *          Objective name
      */
     public void onObjective(@NotNull TabPlayer packetReceiver, int action, @NotNull String objective) {
+        // Only listener (scoreboard) acts on unregister only, avoid a task per packet on netty threads
+        if (action != Scoreboard.ObjectiveAction.UNREGISTER) return;
         for (TabFeature f : values) {
             if (!(f instanceof ObjectiveListener)) continue;
             TimedCaughtTask task = new TimedCaughtTask(TAB.getInstance().getCpu(),

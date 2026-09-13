@@ -1,9 +1,12 @@
 package me.neznamy.tab.platforms.bukkit;
 
+import lombok.Getter;
+import lombok.Setter;
 import me.neznamy.tab.platforms.bukkit.hook.LibsDisguisesHook;
 import me.neznamy.tab.platforms.bukkit.platform.BukkitPlatform;
 import me.neznamy.tab.shared.backend.BackendTabPlayer;
 import me.neznamy.tab.shared.chat.component.TabComponent;
+import me.neznamy.tab.shared.platform.ChannelPacketQueue;
 import org.bukkit.Statistic;
 import org.bukkit.attribute.Attribute;
 import org.bukkit.entity.Player;
@@ -29,6 +32,15 @@ public class BukkitTabPlayer extends BackendTabPlayer {
             // 1.21.11 and lower
         }
     }
+
+    /**
+     * Outbound packet queue used by implementations that opt in. No initializer on purpose,
+     * because it is set from scoreboard/tablist creation inside the super constructor.
+     */
+    @Nullable
+    @Getter
+    @Setter
+    private ChannelPacketQueue packetQueue;
 
     /**
      * Constructs new instance with given bukkit player

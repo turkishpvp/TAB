@@ -23,6 +23,13 @@ public class HeaderFooterPlayerData {
     @Nullable
     public HeaderFooterDesign activeDesign;
 
+    /** Last sent header and footer, used to skip sending identical packets */
+    @Nullable
+    public String lastHeader;
+
+    @Nullable
+    public String lastFooter;
+
     /** Map of header properties for each design */
     public final Map<HeaderFooterDesign, Property> headerProperties = new IdentityHashMap<>();
 

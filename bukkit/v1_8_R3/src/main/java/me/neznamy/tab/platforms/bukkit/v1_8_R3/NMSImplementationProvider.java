@@ -5,6 +5,7 @@ import lombok.Getter;
 import me.neznamy.tab.platforms.bukkit.BukkitTabPlayer;
 import me.neznamy.tab.platforms.bukkit.provider.ComponentConverter;
 import me.neznamy.tab.platforms.bukkit.provider.ImplementationProvider;
+import me.neznamy.tab.shared.platform.ChannelPacketQueue;
 import me.neznamy.tab.shared.platform.Scoreboard;
 import me.neznamy.tab.shared.platform.TabList;
 import me.neznamy.tab.shared.platform.TabListEntryTracker;
@@ -48,5 +49,24 @@ public class NMSImplementationProvider implements ImplementationProvider {
     @Override
     public int getPing(@NotNull BukkitTabPlayer player) {
         return ((CraftPlayer)player.getPlayer()).getHandle().ping;
+    }
+
+    /**
+     * Returns player's packet queue, creating it on first use. Scoreboard and tablist are both
+     * created in TabPlayer constructor on the same thread, so no synchronization is needed.
+     *
+     * @param   player
+     *          Player to get queue of
+     * @return  Player's packet queue
+     */
+    @NotNull
+    static ChannelPacketQueue queue(@NotNull BukkitTabPlayer player) {
+        ChannelPacketQueue queue = player.getPacketQueue();
+        if (queue == null) {
+            queue = new ChannelPacketQueue(((CraftPlayer)player.getPlayer()).getHandle().playerConnection.networkManager.channel,
+                    NMSPacketTabList::merge);
+            player.setPacketQueue(queue);
+        }
+        return queue;
     }
 }

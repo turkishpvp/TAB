@@ -4,6 +4,7 @@ import lombok.Getter;
 import lombok.NonNull;
 import me.neznamy.tab.api.playerlistobjective.PlayerListObjectiveManager;
 import me.neznamy.tab.shared.Property;
+import me.neznamy.tab.shared.ProtocolVersion;
 import me.neznamy.tab.shared.TAB;
 import me.neznamy.tab.shared.TabConstants;
 import me.neznamy.tab.shared.chat.component.TabComponent;
@@ -213,7 +214,8 @@ public class YellowNumber extends RefreshableFeature implements JoinListener, Qu
         Property fancyValue = refreshed.playerlistObjectiveData.fancyValue;
         fancyValue.update();
         for (TabPlayer viewer : onlinePlayers.getPlayers()) {
-            setScore(viewer, refreshed, value, fancyValue.getFormat(viewer));
+            // Fancy value is only displayed on 1.20.3+, skip per-viewer formatting for older clients
+            setScore(viewer, refreshed, value, viewer.getVersionId() >= ProtocolVersion.V1_20_3.getNetworkId() ? fancyValue.getFormat(viewer) : "");
         }
         sendProxyMessage(refreshed.getUniqueId(), value, fancyValue.get());
     }
@@ -263,7 +265,7 @@ public class YellowNumber extends RefreshableFeature implements JoinListener, Qu
                     scoreHolder.getNickname(),
                     value,
                     null, // Unused by this objective slot
-                    cache.get(fancyValue)
+                    viewer.getVersionId() >= ProtocolVersion.V1_20_3.getNetworkId() ? cache.get(fancyValue) : null
             );
         }
     }
