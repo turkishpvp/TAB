@@ -33,6 +33,9 @@ public class LayoutManagerImpl extends RefreshableFeature implements LayoutManag
     /** public static for simple access */
     public static final Set<UUID> UUIDS_SET = new HashSet<>();
 
+    /** Minimum delay between page switches, so sneak spam cannot keep re-sending the tablist */
+    private static final int PAGE_SWITCH_COOLDOWN = 250;
+
     private final LayoutConfiguration configuration;
     private final LayoutSkinManager skinManager;
     private final UUID[] uuids = new UUID[80];
@@ -212,6 +215,9 @@ public class LayoutManagerImpl extends RefreshableFeature implements LayoutManag
      */
     public void onSneak(@NotNull TabPlayer p) {
         if (pagePlaceholder == null || !isPageSwitchingAllowed(p)) return;
+        long time = System.currentTimeMillis();
+        if (time - p.layoutData.lastPageSwitch < PAGE_SWITCH_COOLDOWN) return;
+        p.layoutData.lastPageSwitch = time;
         setPage(p, nextPage(p.layoutData.page, configuration.getPageCount()));
     }
 
@@ -325,6 +331,9 @@ public class LayoutManagerImpl extends RefreshableFeature implements LayoutManag
 
         /** Page the player is currently on, starting at 1. Written from the feature thread and the placeholder refresh thread. */
         public volatile int page = 1;
+
+        /** Time of the last page switch, used to ignore sneak spam */
+        public volatile long lastPageSwitch;
     }
 
     /**
