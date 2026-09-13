@@ -51,7 +51,7 @@ public class BukkitEventListener implements EventListener<Player>, Listener {
                 e.getPlayer().getUniqueId(),
                 platform.getServerVersionInfo().getImplementationProvider().newTabListEntryTracker(e.getPlayer())
         );
-        if (!TAB.getInstance().isPluginDisabled()) {
+        if (!TAB.getInstance().isPluginDisabled() && TAB.getInstance().getFeatureManager() != null) {
             // Injected synchronously, entity spawn packets are sent right after this event
             MultiLineNameTags multiLine = TAB.getInstance().getFeatureManager().getFeature(TabConstants.Feature.MULTILINE_NAMETAGS);
             if (multiLine != null) multiLine.getRenderer().inject(e.getPlayer());

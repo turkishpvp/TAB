@@ -45,3 +45,12 @@ sourceSets.main {
         }
     }
 }
+dependencies {
+    testImplementation("org.junit.jupiter:junit-jupiter:5.10.2")
+    testRuntimeOnly("org.junit.platform:junit-platform-launcher")
+    testImplementation("io.netty:netty-all:4.1.90.Final")
+}
+
+tasks.test {
+    useJUnitPlatform()
+}

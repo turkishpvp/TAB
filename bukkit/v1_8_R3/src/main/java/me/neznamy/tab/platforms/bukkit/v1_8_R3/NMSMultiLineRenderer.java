@@ -383,7 +383,7 @@ public class NMSMultiLineRenderer implements MultiLineRenderer {
         @NotNull
         private Object onDestroy(@NotNull PacketPlayOutEntityDestroy packet) {
             int[] ids = (int[]) DESTROY_IDS.get(packet);
-            int[] extra = null;
+            List<View> withLines = null;
             int extraCount = 0;
             for (int id : ids) {
                 View view = views.remove(id);
@@ -391,15 +391,19 @@ public class NMSMultiLineRenderer implements MultiLineRenderer {
                 Set<Handler> viewers = viewersOf.get(id);
                 if (viewers != null) viewers.remove(this);
                 if (view.entityCount == 0) continue;
-                if (extra == null) extra = new int[ids.length * ID_BLOCK];
-                for (int i = 0; i < view.entityCount; i++) {
-                    extra[extraCount++] = view.idBase - i;
-                }
+                if (withLines == null) withLines = new ArrayList<>();
+                withLines.add(view);
+                extraCount += view.entityCount;
             }
-            if (extra == null) return packet;
+            if (withLines == null) return packet;
             // Packet instance is shared between viewers, send a new one destroying lines in the same packet as the player
             int[] merged = Arrays.copyOf(ids, ids.length + extraCount);
-            System.arraycopy(extra, 0, merged, ids.length, extraCount);
+            int index = ids.length;
+            for (View view : withLines) {
+                for (int i = 0; i < view.entityCount; i++) {
+                    merged[index++] = view.idBase - i;
+                }
+            }
             return new PacketPlayOutEntityDestroy(merged);
         }
 
