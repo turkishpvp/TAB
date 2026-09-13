@@ -14,8 +14,8 @@ import me.neznamy.tab.shared.util.cache.StringToComponentCache;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
+import java.util.Objects;
 
 /**
  * Multi-line nametags (lines above and below player's name) rendered by fake entities
@@ -35,8 +35,8 @@ public class MultiLineNameTags extends RefreshableFeature implements JoinListene
     /** Whether vanilla nametag is replaced by the "nametag" line */
     private final boolean replacesVanillaTag;
 
-    /** Spacers below the lowest line to place it at vanilla nametag height (or above vanilla tag if it stays) */
-    private final int baseSpacers;
+    /** Height of the lowest line above player's feet */
+    private final double firstLineHeight;
 
     /**
      * Constructs new instance and registers disable condition checker.
@@ -53,8 +53,12 @@ public class MultiLineNameTags extends RefreshableFeature implements JoinListene
         this.nameTags = nameTags;
         this.renderer = renderer;
         replacesVanillaTag = configuration.getLines().contains(MultiLineConfiguration.NAMETAG_LINE);
-        // Vanilla tag (and belowname score under it) stays when it is not replaced, start lines above them
-        baseSpacers = replacesVanillaTag ? 2 : TAB.getInstance().getConfiguration().getConfig().getBelowname() != null ? 4 : 3;
+        if (configuration.getFirstLineHeight() != null) {
+            firstLineHeight = configuration.getFirstLineHeight();
+        } else {
+            // Vanilla tag is at 2.3 with belowname score 0.28 under it, start above them if vanilla tag stays
+            firstLineHeight = replacesVanillaTag ? 2.34 : TAB.getInstance().getConfiguration().getConfig().getBelowname() != null ? 2.86 : 2.58;
+        }
         disableChecker = new DisableChecker(this, TAB.getInstance().getPlaceholderManager().getConditionManager().getByNameOrExpression(configuration.getDisableCondition()),
                 this::onDisableConditionChange, p -> p.multiLineData.disabled);
         TAB.getInstance().getFeatureManager().registerFeature(TabConstants.Feature.MULTILINE_NAMETAGS + "-Condition", disableChecker);
@@ -72,7 +76,7 @@ public class MultiLineNameTags extends RefreshableFeature implements JoinListene
     public void unload() {
         renderer.unload();
         for (TabPlayer player : TAB.getInstance().getOnlinePlayers()) {
-            player.multiLineData.lines = null;
+            player.multiLineData.layout = null;
             player.teamData.multiLineActive = false;
             nameTags.getVisibilityManager().updateVisibility(player);
         }
@@ -86,7 +90,6 @@ public class MultiLineNameTags extends RefreshableFeature implements JoinListene
 
     private void loadPlayer(@NotNull TabPlayer player) {
         MultiLinePlayerData data = player.multiLineData;
-        data.baseSpacers = baseSpacers;
         data.spectator = player.getGamemode() == 3;
         data.prefix = player.loadPropertyFromConfig(this, "tagprefix", "");
         data.name = player.loadPropertyFromConfig(this, "customtagname", player.getName());
@@ -165,19 +168,28 @@ public class MultiLineNameTags extends RefreshableFeature implements JoinListene
         MultiLinePlayerData data = player.multiLineData;
         if (data.lineProperties == null) return; // Player not loaded yet
         boolean active = !data.disabled.get() && !player.teamData.isDisabled();
-        String[] lines = null;
+        MultiLinePlayerData.Layout layout = null;
         if (active) {
-            List<String> visible = new ArrayList<>(data.lineProperties.length);
-            for (Property property : data.lineProperties) {
+            List<String> texts = new ArrayList<>(data.lineProperties.length);
+            List<String> names = new ArrayList<>(data.lineProperties.length);
+            for (int i = 0; i < data.lineProperties.length; i++) {
+                Property property = data.lineProperties[i];
                 String text = property == null ? data.prefix.updateAndGet() + data.name.updateAndGet() + data.suffix.updateAndGet() : property.updateAndGet();
                 // ponytail: relational placeholders are not resolved in lines, they would require per-viewer texts on network threads
                 String legacy = cache.get(text).toLegacyText();
-                if (!isVisiblyEmpty(legacy)) visible.add(legacy);
+                if (isVisiblyEmpty(legacy)) continue; // Empty lines take no space
+                texts.add(legacy);
+                names.add(configuration.getLines().get(i));
             }
-            lines = visible.toArray(new String[0]);
+            double[] heights = new double[texts.size()];
+            for (int i = 0; i < heights.length - 1; i++) {
+                heights[i] = configuration.getSpacingBelow(names.get(i));
+            }
+            if (heights.length > 0) heights[heights.length - 1] = firstLineHeight;
+            layout = new MultiLinePlayerData.Layout(texts.toArray(new String[0]), heights, configuration.isLowerWhenSneaking());
         }
-        if (!Arrays.equals(lines, data.lines)) {
-            data.lines = lines;
+        if (!Objects.equals(layout, data.layout)) {
+            data.layout = layout;
             renderer.refreshOwner(player);
         }
         boolean hideVanilla = active && replacesVanillaTag;

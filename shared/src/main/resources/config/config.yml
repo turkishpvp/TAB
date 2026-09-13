@@ -64,6 +64,7 @@ belowname-objective:
 # Extra lines above and below player names (1.8.8 servers only, requires scoreboard-teams).
 # Lines are invisible armor stands riding the player, so the client moves them without any packets.
 # Line names are properties set in groups.yml / users.yml (for example abovename: "&7Level %player_level%").
+# Up to 41 lines (for example 20 above, nametag, 20 below). Lines with empty value take no space.
 # "nametag" line is tagprefix + customtagname + tagsuffix and replaces vanilla nametag, remove it to keep vanilla nametag.
 multiline-nametags:
   enabled: false
@@ -71,6 +72,16 @@ multiline-nametags:
     - abovename
     - nametag
     - belowname
+  # Height of the lowest line above player's feet in blocks (vanilla nametag is at 2.3).
+  # Remove for automatic value (2.34, or above vanilla nametag if "nametag" line is not used).
+  first-line-height: 2.34
+  # Space between lines in blocks (vanilla uses 0.276). Heights are matched by invisible entities, usually within 1 cm.
+  line-spacing: 0.26
+  # Space between a specific line and the line below it
+  custom-line-spacing:
+    abovename: 0.3
+  # Move lines down while sneaking like vanilla nametag. Lines always turn translucent and hidden behind walls when sneaking.
+  lower-when-sneaking: true
   disable-condition: '%world%=disabledworld'
 
 # https://github.com/NEZNAMY/TAB/wiki/Feature-guide:-Spectator-fix

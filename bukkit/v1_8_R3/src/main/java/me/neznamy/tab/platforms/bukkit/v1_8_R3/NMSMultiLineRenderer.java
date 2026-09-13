@@ -26,11 +26,15 @@ import java.util.concurrent.atomic.AtomicInteger;
 /**
  * Multi-line nametags for 1.8.8, a native port of MultiLineAPI's mount renderer.
  * <p>
- * Lines are invisible marker armor stands chained on top of the player using invisible baby ocelots as spacers:
- * {@code player <- ocelot <- ocelot <- stand(lowest line) <- ocelot <- stand <- ...}. 1.8 allows one passenger
- * per vehicle and positions a rider at {@code vehicle y + vehicle height * 0.75 + rider y offset}, which gives
- * 1.35 above the player, 0.2625 per baby ocelot (vanilla line spacing is 0.276) and 0 per marker armor stand,
- * whose label renders 0.5 above it. The client moves the whole chain with the player, so movement costs no packets.
+ * Lines are invisible marker armor stands chained on top of the player with invisible spacer entities between them:
+ * {@code player <- spacers <- stand(lowest line) <- spacers <- stand <- ...}. 1.8 allows one passenger per vehicle and
+ * positions a rider at {@code vehicle y + vehicle height * 0.75 + rider y offset}: 1.35 above the player, 0 per marker
+ * armor stand (label renders 0.5 above it) and a fixed step per spacer type, including negative step of a slime with
+ * negative size. Configured heights are approximated by the best combination of spacers (usually within 1 cm).
+ * The client moves the whole chain with the player, so movement costs no packets.
+ * <p>
+ * Lowering lines on sneak (like vanilla nametag) resizes two base spacers with metadata instead of respawning:
+ * slime size 1 to 0 (-0.3825) and baby ocelot to adult (+0.2625), -0.12 in total.
  * <p>
  * Marker armor stands cannot be targeted by the client, ocelots can. Attacks on them are held until the next movement
  * packet (1.8 client sends attack before that tick's rotation) and forwarded to the player only if the look ray hits
@@ -43,21 +47,26 @@ public class NMSMultiLineRenderer implements MultiLineRenderer {
 
     private static final String HANDLER_NAME = "TAB-MultiLine";
 
-    /** Size of fake entity id block of a player, enough for 2 * MAX_LINES + spacers */
-    private static final int ID_BLOCK = 64;
+    /** Size of fake entity id block of a player, enough for 41 lines with maximum spacings */
+    private static final int ID_BLOCK = 512;
 
     /** Entity ids above this value are fake entities of this renderer, server ids never get this high */
     private static final int ID_FLOOR = 2_000_000_000;
 
     private static final double PLAYER_MOUNT_OFFSET = 1.35;
-    private static final double SPACER_HEIGHT = 0.2625;
+    private static final double LABEL_OFFSET = 0.5;
+
+    /** Maximum amount of spacers used for fine-tuning a single height */
+    private static final int MAX_FINE_SPACERS = 5;
+
+    /** Height change of the sneak adjusters (slime 1 to 0 and baby ocelot to adult) */
+    private static final double SNEAK_ADJUSTERS_HEIGHT = 0.3825 + 0.2625;
 
     /** ponytail: fixed tolerance for server/client position difference of the target, lag compensation if hits get lost */
     private static final double HIT_TOLERANCE = 0.1;
     private static final double REACH = 6;
 
     private static final int TYPE_ARMOR_STAND = 30;
-    private static final int TYPE_OCELOT = 98;
 
     private static final byte FLAG_SNEAKING = 0x02;
     private static final byte FLAG_INVISIBLE = 0x20;
@@ -82,9 +91,12 @@ public class NMSMultiLineRenderer implements MultiLineRenderer {
 
     /**
      * Static so ids of a new renderer after reload never collide with lines still being destroyed by the old one.
-     * ponytail: ids are never reused, ~2 million joins per server start before reaching ID_FLOOR.
+     * ponytail: ids are never reused, ~280k joins per server start before reaching ID_FLOOR.
      */
     private static final AtomicInteger nextIdBase = new AtomicInteger(Integer.MAX_VALUE);
+
+    /** Spacer combinations by height in millimeters */
+    private static final Map<Long, Spacer[]> recipes = new ConcurrentHashMap<>();
 
     /** Players by their entity id */
     private final Map<Integer, TabPlayer> owners = new ConcurrentHashMap<>();
@@ -227,6 +239,73 @@ public class NMSMultiLineRenderer implements MultiLineRenderer {
     }
 
     /**
+     * Invisible entity used to lift riders by a fixed height.
+     */
+    private enum Spacer {
+
+        /** Baby ocelot, 0.35 tall */
+        OCELOT(98, 0.2625),
+
+        /** Silverfish, 0.2 y offset + 0.3 tall */
+        SILVERFISH(60, 0.425),
+
+        /** Slime of size 1 */
+        SLIME(55, 0.3825),
+
+        /** Slime of size -1, negative height pulls riders down */
+        SLIME_DOWN(55, -0.3825);
+
+        private final int type;
+        private final double height;
+
+        Spacer(int type, double height) {
+            this.type = type;
+            this.height = height;
+        }
+    }
+
+    /**
+     * Returns combination of spacers lifting riders by given height as closely as possible.
+     *
+     * @param   height
+     *          Height in blocks, may be negative
+     * @return  Spacers to use
+     */
+    @NotNull
+    private static Spacer[] recipe(double height) {
+        return recipes.computeIfAbsent(Math.round(height * 1000), key -> {
+            // Cover large heights with silverfish, then find the best small combination for the rest
+            int coarse = (int) Math.max(0, Math.floor((height - 1) / Spacer.SILVERFISH.height));
+            double rest = height - coarse * Spacer.SILVERFISH.height;
+            int[] best = null;
+            double bestError = Double.MAX_VALUE;
+            // ponytail: brute force over ~250 combinations, result is cached per height
+            for (int o = 0; o <= MAX_FINE_SPACERS; o++) {
+                for (int s = 0; o + s <= MAX_FINE_SPACERS; s++) {
+                    for (int up = 0; o + s + up <= MAX_FINE_SPACERS; up++) {
+                        for (int down = 0; o + s + up + down <= MAX_FINE_SPACERS; down++) {
+                            if (up > 0 && down > 0) continue; // Cancel each other out
+                            double error = Math.abs(o * Spacer.OCELOT.height + s * Spacer.SILVERFISH.height
+                                    + up * Spacer.SLIME.height + down * Spacer.SLIME_DOWN.height - rest);
+                            int count = o + s + up + down;
+                            if (best == null || error < bestError - 1e-9 || (Math.abs(error - bestError) < 1e-9 && count < best[0] + best[1] + best[2] + best[3])) {
+                                best = new int[]{o, s + coarse, up, down};
+                                bestError = error;
+                            }
+                        }
+                    }
+                }
+            }
+            List<Spacer> spacers = new ArrayList<>();
+            Spacer[] types = Spacer.values();
+            for (int i = 0; i < types.length; i++) {
+                for (int j = 0; j < best[i]; j++) spacers.add(types[i]);
+            }
+            return spacers.toArray(new Spacer[0]);
+        });
+    }
+
+    /**
      * State of a player seen by the viewer.
      */
     private static class View {
@@ -244,10 +323,14 @@ public class NMSMultiLineRenderer implements MultiLineRenderer {
         /** Currently spawned fake entities, all ids from idBase downwards */
         private int entityCount;
         private int idBase;
-        private int baseSpacers;
+        @Nullable private MultiLinePlayerData.Layout layout;
         private boolean sneaking;
         private int[] lineIds;
         private String[] texts;
+
+        /** Sneak adjuster ids, 0 if not used */
+        private int adjusterSlime;
+        private int adjusterOcelot;
 
         private View(int entityId) {
             this.entityId = entityId;
@@ -471,17 +554,18 @@ public class NMSMultiLineRenderer implements MultiLineRenderer {
 
         private void sync(@NotNull View view) {
             TabPlayer owner = owners.get(view.entityId);
-            String[] lines = desiredLines(view, owner);
-            if (owner == null || lines == null || lines.length == 0) {
+            MultiLinePlayerData.Layout layout = desiredLayout(view, owner);
+            if (owner == null || layout == null || layout.lines.length == 0) {
                 destroyLines(view);
                 return;
             }
-            MultiLinePlayerData data = owner.multiLineData;
-            if (view.entityCount == 0 || view.lineIds.length != lines.length || view.baseSpacers != data.baseSpacers || view.idBase != data.idBase) {
+            if (view.entityCount == 0 || view.layout == null || !view.layout.hasSameStructure(layout) || view.idBase != owner.multiLineData.idBase) {
                 destroyLines(view);
-                spawnLines(view, owner, lines);
+                spawnLines(view, owner, layout);
                 return;
             }
+            view.layout = layout;
+            String[] lines = layout.lines;
             for (int i = 0; i < lines.length; i++) {
                 if (lines[i].equals(view.texts[i])) continue;
                 view.texts[i] = lines[i];
@@ -497,54 +581,87 @@ public class NMSMultiLineRenderer implements MultiLineRenderer {
                     watcher.a(0, standFlags(sneaking));
                     context.write(new PacketPlayOutEntityMetadata(id, watcher, true));
                 }
+                if (view.adjusterSlime != 0) {
+                    DataWatcher slime = new DataWatcher(null);
+                    slime.a(16, (byte) (sneaking ? 0 : 1));
+                    context.write(new PacketPlayOutEntityMetadata(view.adjusterSlime, slime, true));
+                    DataWatcher ocelot = new DataWatcher(null);
+                    ocelot.a(12, (byte) (sneaking ? 0 : -1));
+                    context.write(new PacketPlayOutEntityMetadata(view.adjusterOcelot, ocelot, true));
+                }
             }
         }
 
         @Nullable
-        private String[] desiredLines(@NotNull View view, @Nullable TabPlayer owner) {
+        private MultiLinePlayerData.Layout desiredLayout(@NotNull View view, @Nullable TabPlayer owner) {
             if (owner == null) return null;
             if (view.dead || view.foreignPassenger != 0 || (view.flags & FLAG_INVISIBLE) != 0) return null;
             TabPlayer viewer = TAB.getInstance().getPlayer(viewerId);
             if (viewer == null) return null; // Not loaded yet, refreshed on join
             if (owner.multiLineData.spectator || viewer.multiLineData.spectator) return null; // Spectators see invisible entities
             if (!owner.teamData.isNameTagVisibleTo(viewer)) return null;
-            return owner.multiLineData.lines;
+            return owner.multiLineData.layout;
         }
 
-        private void spawnLines(@NotNull View view, @NotNull TabPlayer owner, @NotNull String[] lines) {
+        private void spawnLines(@NotNull View view, @NotNull TabPlayer owner, @NotNull MultiLinePlayerData.Layout layout) {
             MultiLinePlayerData data = owner.multiLineData;
             EntityPlayer ownerHandle = handle(owner);
             double lx = ownerHandle.locX;
-            double ly = ownerHandle.locY + PLAYER_MOUNT_OFFSET;
             double lz = ownerHandle.locZ;
+            double[] ly = {ownerHandle.locY + PLAYER_MOUNT_OFFSET};
+            int[] index = {0};
+            int[] vehicle = {view.entityId};
             boolean sneaking = (view.flags & FLAG_SNEAKING) != 0;
-            int index = 0;
-            int vehicle = view.entityId;
-            for (int i = 0; i < data.baseSpacers; i++) {
-                int id = data.idBase - index++;
-                spawn(id, vehicle, TYPE_OCELOT, lx, ly, lz, spacerWatcher());
-                vehicle = id;
-                ly += SPACER_HEIGHT;
+            String[] lines = layout.lines;
+            double[] heights = layout.heights;
+
+            // Base below the lowest line
+            double base = heights[heights.length - 1] - PLAYER_MOUNT_OFFSET - LABEL_OFFSET;
+            view.adjusterSlime = 0;
+            view.adjusterOcelot = 0;
+            if (layout.lowerWhenSneaking) {
+                base -= SNEAK_ADJUSTERS_HEIGHT;
+                view.adjusterSlime = spawnSpacer(data.idBase, index, vehicle, ly, lx, lz, 55, sneaking ? 0 : 1, false, Spacer.SLIME.height);
+                view.adjusterOcelot = spawnSpacer(data.idBase, index, vehicle, ly, lx, lz, 98, 0, !sneaking, Spacer.OCELOT.height);
             }
+            spawnSpacers(recipe(base), data.idBase, index, vehicle, ly, lx, lz);
+
             int[] lineIds = new int[lines.length];
             for (int line = lines.length - 1; line >= 0; line--) {
-                int id = data.idBase - index++;
-                spawn(id, vehicle, TYPE_ARMOR_STAND, lx, ly, lz, standWatcher(lines[line], sneaking));
-                vehicle = id;
+                int id = data.idBase - index[0]++;
+                spawn(id, vehicle[0], TYPE_ARMOR_STAND, lx, ly[0], lz, standWatcher(lines[line], sneaking));
+                vehicle[0] = id;
                 lineIds[line] = id;
-                if (line > 0) {
-                    int spacer = data.idBase - index++;
-                    spawn(spacer, vehicle, TYPE_OCELOT, lx, ly, lz, spacerWatcher());
-                    vehicle = spacer;
-                    ly += SPACER_HEIGHT;
-                }
+                if (line > 0) spawnSpacers(recipe(heights[line - 1]), data.idBase, index, vehicle, ly, lx, lz);
             }
-            view.entityCount = index;
+            view.entityCount = index[0];
             view.idBase = data.idBase;
-            view.baseSpacers = data.baseSpacers;
+            view.layout = layout;
             view.sneaking = sneaking;
             view.lineIds = lineIds;
             view.texts = lines.clone();
+        }
+
+        private void spawnSpacers(@NotNull Spacer[] spacers, int idBase, int[] index, int[] vehicle, double[] y, double x, double z) {
+            for (Spacer spacer : spacers) {
+                int size = spacer == Spacer.SLIME ? 1 : spacer == Spacer.SLIME_DOWN ? -1 : 0;
+                spawnSpacer(idBase, index, vehicle, y, x, z, spacer.type, size, spacer == Spacer.OCELOT, spacer.height);
+            }
+        }
+
+        private int spawnSpacer(int idBase, int[] index, int[] vehicle, double[] y, double x, double z, int type, int slimeSize,
+                                boolean baby, double height) {
+            int id = idBase - index[0]++;
+            DataWatcher watcher = new DataWatcher(null);
+            watcher.a(0, FLAG_INVISIBLE);
+            watcher.a(4, (byte) 1); // Silent
+            watcher.a(15, (byte) 1); // No AI
+            if (type == 98) watcher.a(12, (byte) (baby ? -1 : 0)); // Age
+            if (type == 55) watcher.a(16, (byte) slimeSize); // Slime size
+            spawn(id, vehicle[0], type, x, y[0], z, watcher);
+            vehicle[0] = id;
+            y[0] += height;
+            return id;
         }
 
         @SneakyThrows
@@ -562,16 +679,6 @@ public class NMSMultiLineRenderer implements MultiLineRenderer {
             ATTACH_PASSENGER.setInt(attach, id);
             ATTACH_VEHICLE.setInt(attach, vehicle);
             context.write(attach);
-        }
-
-        @NotNull
-        private DataWatcher spacerWatcher() {
-            DataWatcher watcher = new DataWatcher(null);
-            watcher.a(0, FLAG_INVISIBLE);
-            watcher.a(4, (byte) 1); // Silent
-            watcher.a(12, (byte) -1); // Baby
-            watcher.a(15, (byte) 1); // No AI
-            return watcher;
         }
 
         @NotNull
@@ -598,6 +705,7 @@ public class NMSMultiLineRenderer implements MultiLineRenderer {
             }
             context.write(new PacketPlayOutEntityDestroy(ids));
             view.entityCount = 0;
+            view.layout = null;
             view.lineIds = null;
             view.texts = null;
         }
