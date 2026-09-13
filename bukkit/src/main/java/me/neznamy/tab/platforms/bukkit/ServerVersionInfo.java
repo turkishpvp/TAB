@@ -9,9 +9,6 @@ import org.bukkit.Bukkit;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.util.LinkedHashMap;
-import java.util.Map;
-
 /**
  * Class for detecting server software and version and finding available NMS implementation(s).
  */
@@ -38,7 +35,7 @@ public class ServerVersionInfo {
     @Setter
     private ImplementationProvider implementationProvider;
 
-    /** Name of the implementation package (such as v1_7_R4 or paper_1_20_5) */
+    /** Name of the implementation package, v1_8_R3 on supported servers */
     @Nullable
     private String implementationPackage;
 
@@ -76,73 +73,21 @@ public class ServerVersionInfo {
      */
     @NotNull
     private ImplementationProvider findImplementationProvider() {
-        if (serverPackage != null) {
-            // Paper <1.20.5 or Spigot 1.x
-            try {
-                // Does not actually support flat 1.19, but whatever, no one is using it anyway
-                implementationPackage = serverPackage;
-                return (ImplementationProvider) Class.forName("me.neznamy.tab.platforms.bukkit." + serverPackage + ".NMSImplementationProvider").getConstructor().newInstance();
-            } catch (ReflectiveOperationException ignored) {
-                throw new IllegalStateException(String.format(
-                        "Your server version (%s - %s) is no longer supported. Please use an older version of TAB.",
-                        minecraftVersion, serverPackage
-                ));
-            }
-        }
-
-        // Paper 1.20.5+ or Spigot 26+
-        Map<ProtocolVersion, String> spigotVersions = new LinkedHashMap<>();
-        spigotVersions.put(ProtocolVersion.V26_1, "v26_1");
-        spigotVersions.put(ProtocolVersion.V26_1_1, "v26_1");
-        spigotVersions.put(ProtocolVersion.V26_1_2, "v26_1");
-        spigotVersions.put(ProtocolVersion.V26_2, "v26_2");
-
-        Map<ProtocolVersion, String> paperVersions = new LinkedHashMap<>();
-        paperVersions.put(ProtocolVersion.V1_20_5, "paper_1_20_5");
-        paperVersions.put(ProtocolVersion.V1_20_6, "paper_1_20_5");
-        paperVersions.put(ProtocolVersion.V1_21, "paper_1_20_5");
-        paperVersions.put(ProtocolVersion.V1_21_1, "paper_1_20_5");
-        paperVersions.put(ProtocolVersion.V1_21_2, "paper_1_21_2");
-        paperVersions.put(ProtocolVersion.V1_21_3, "paper_1_21_2");
-        paperVersions.put(ProtocolVersion.V1_21_4, "paper_1_21_4");
-        paperVersions.put(ProtocolVersion.V1_21_5, "paper_1_21_4");
-        paperVersions.put(ProtocolVersion.V1_21_6, "paper_1_21_4");
-        paperVersions.put(ProtocolVersion.V1_21_7, "paper_1_21_4");
-        paperVersions.put(ProtocolVersion.V1_21_8, "paper_1_21_4");
-        paperVersions.put(ProtocolVersion.V1_21_9, "paper_1_21_9");
-        paperVersions.put(ProtocolVersion.V1_21_10, "paper_1_21_9");
-        paperVersions.put(ProtocolVersion.V1_21_11, "paper_1_21_11");
-        paperVersions.put(ProtocolVersion.V26_1, "paper_1_21_11");  // v26_1 works too
-        paperVersions.put(ProtocolVersion.V26_1_1, "paper_1_21_11");  // v26_1 works too
-        paperVersions.put(ProtocolVersion.V26_1_2, "paper_1_21_11");  // v26_1 works too
-        paperVersions.put(ProtocolVersion.V26_2, "paper_26_2");  // v26_2 works too
-
-        if (serverVersion == ProtocolVersion.UNKNOWN) {
+        if (serverPackage == null) {
+            // Paper 1.20.5+ / Spigot 26+, which this build does not contain implementations for
             throw new IllegalStateException(String.format(
-                    "Unknown server version (%s %s), cannot find implementation.",
-                    serverName, minecraftVersion
-            ));
-        }
-        String implementation = (serverName.equals("Paper") ? paperVersions : spigotVersions).get(serverVersion);
-        if (implementation == null) {
-            throw new IllegalStateException(String.format(
-                    "Your server version (%s %s) is no longer supported. Please use an older version of TAB.",
+                    "Your server version (%s %s) is not supported, this build only supports 1.8.8.",
                     serverName, minecraftVersion
             ));
         }
         try {
-            implementationPackage = implementation;
-            return (ImplementationProvider) Class.forName("me.neznamy.tab.platforms.bukkit." + implementation + ".NMSImplementationProvider").getConstructor().newInstance();
-        } catch (ClassNotFoundException e) {
+            implementationPackage = serverPackage;
+            return (ImplementationProvider) Class.forName("me.neznamy.tab.platforms.bukkit." + serverPackage + ".NMSImplementationProvider").getConstructor().newInstance();
+        } catch (ReflectiveOperationException ignored) {
             throw new IllegalStateException(String.format(
-                    "Your server version (%s %s) is marked as compatible, but the implementation does not exist. This is probably a bug.",
-                    serverName, minecraftVersion
-            ), e);
-        } catch (ReflectiveOperationException e) {
-            throw new IllegalStateException(String.format(
-                    "Failed to initialize implementation for %s %s. This is probably a bug.",
-                    serverName, minecraftVersion
-            ), e);
+                    "Your server version (%s - %s) is not supported, this build only supports 1.8.8.",
+                    minecraftVersion, serverPackage
+            ));
         }
     }
 }
