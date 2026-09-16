@@ -8,6 +8,7 @@ import org.jetbrains.annotations.Nullable;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -34,13 +35,9 @@ public class MultiLinePlayerData {
     /** Flag tracking whether the feature is disabled for this player with a condition */
     public final AtomicBoolean disabled = new AtomicBoolean();
 
-    /** Snapshot shown to all viewers, {@code null} when lines are viewer-specific or not displayed */
-    @Nullable
-    public volatile Layout layout;
-
-    /** Immutable snapshots for each viewer, empty when all viewers share {@link #layout} */
+    /** Currently displayed lines, replaced as a whole so network threads never see a half-updated state */
     @NotNull
-    public volatile Map<UUID, Layout> relationalLayouts = Collections.emptyMap();
+    public volatile Snapshot snapshot = Snapshot.EMPTY;
 
     /** Whether the player is currently shown their own lines */
     public volatile boolean selfView;
@@ -53,6 +50,61 @@ public class MultiLinePlayerData {
 
     /** First id of the fake entity id block assigned to this player */
     public volatile int idBase;
+
+    /**
+     * Immutable set of layouts of a player. Either all viewers share one layout, or there is one layout
+     * per viewer, which is only needed when lines contain relational placeholders or relational conditions.
+     */
+    public static class Snapshot {
+
+        /** Empty snapshot displaying no lines */
+        public static final Snapshot EMPTY = new Snapshot(null, Collections.emptyMap());
+
+        /** Layout shown to all viewers, {@code null} when lines are viewer-specific or not displayed */
+        @Nullable
+        public final Layout shared;
+
+        /** Layouts for each viewer, empty when all viewers share the same one */
+        @NotNull
+        public final Map<UUID, Layout> perViewer;
+
+        /**
+         * Constructs new instance with given layouts.
+         *
+         * @param   shared
+         *          Layout shown to all viewers, {@code null} if viewer-specific
+         * @param   perViewer
+         *          Layouts for each viewer, empty if a shared one is used
+         */
+        public Snapshot(@Nullable Layout shared, @NotNull Map<UUID, Layout> perViewer) {
+            this.shared = shared;
+            this.perViewer = perViewer;
+        }
+
+        /**
+         * Returns layout to display to given viewer, {@code null} if there are no lines to display.
+         *
+         * @param   viewer
+         *          Unique ID of the viewer
+         * @return  Layout for the viewer or {@code null} if none
+         */
+        @Nullable
+        public Layout forViewer(@NotNull UUID viewer) {
+            Layout layout = perViewer.get(viewer);
+            return layout != null ? layout : shared;
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            if (!(o instanceof Snapshot)) return false;
+            return Objects.equals(shared, ((Snapshot) o).shared) && perViewer.equals(((Snapshot) o).perViewer);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(shared, perViewer);
+        }
+    }
 
     /**
      * Immutable snapshot of displayed lines.

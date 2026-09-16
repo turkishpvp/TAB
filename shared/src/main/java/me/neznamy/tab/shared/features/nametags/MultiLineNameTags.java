@@ -109,8 +109,7 @@ public class MultiLineNameTags extends RefreshableFeature implements JoinListene
     public void unload() {
         renderer.unload();
         for (TabPlayer player : TAB.getInstance().getOnlinePlayers()) {
-            player.multiLineData.layout = null;
-            player.multiLineData.relationalLayouts = Collections.emptyMap();
+            player.multiLineData.snapshot = MultiLinePlayerData.Snapshot.EMPTY;
             player.teamData.multiLineActive = false;
             nameTags.getVisibilityManager().updateVisibility(player);
         }
@@ -121,7 +120,7 @@ public class MultiLineNameTags extends RefreshableFeature implements JoinListene
         loadPlayer(connectedPlayer);
         for (TabPlayer owner : TAB.getInstance().getOnlinePlayers()) {
             // Only viewer-specific players need a snapshot for the new viewer, everyone else shares one
-            if (owner != connectedPlayer && !owner.multiLineData.relationalLayouts.isEmpty()) update(owner);
+            if (owner != connectedPlayer && !owner.multiLineData.snapshot.perViewer.isEmpty()) update(owner);
         }
         renderer.onJoin(connectedPlayer);
     }
@@ -129,14 +128,13 @@ public class MultiLineNameTags extends RefreshableFeature implements JoinListene
     @Override
     public void onQuit(@NotNull TabPlayer disconnectedPlayer) {
         renderer.onQuit(disconnectedPlayer);
-        disconnectedPlayer.multiLineData.layout = null;
-        disconnectedPlayer.multiLineData.relationalLayouts = Collections.emptyMap();
+        disconnectedPlayer.multiLineData.snapshot = MultiLinePlayerData.Snapshot.EMPTY;
         for (TabPlayer owner : TAB.getInstance().getOnlinePlayers()) {
-            Map<UUID, MultiLinePlayerData.Layout> layouts = owner.multiLineData.relationalLayouts;
-            if (!layouts.containsKey(disconnectedPlayer.getUniqueId())) continue;
-            Map<UUID, MultiLinePlayerData.Layout> copy = new HashMap<>(layouts);
+            MultiLinePlayerData.Snapshot snapshot = owner.multiLineData.snapshot;
+            if (!snapshot.perViewer.containsKey(disconnectedPlayer.getUniqueId())) continue;
+            Map<UUID, MultiLinePlayerData.Layout> copy = new HashMap<>(snapshot.perViewer);
             copy.remove(disconnectedPlayer.getUniqueId());
-            owner.multiLineData.relationalLayouts = Collections.unmodifiableMap(copy);
+            owner.multiLineData.snapshot = new MultiLinePlayerData.Snapshot(null, Collections.unmodifiableMap(copy));
         }
     }
 
@@ -216,7 +214,7 @@ public class MultiLineNameTags extends RefreshableFeature implements JoinListene
         if (data.lineProperties == null) return; // Player not loaded yet
         boolean active = !data.disabled.get() && !player.teamData.isDisabled();
         if (!active) {
-            publish(player, null, Collections.emptyMap());
+            publish(player, MultiLinePlayerData.Snapshot.EMPTY);
         } else {
             data.prefix.update();
             data.name.update();
@@ -229,9 +227,9 @@ public class MultiLineNameTags extends RefreshableFeature implements JoinListene
                 for (TabPlayer viewer : TAB.getInstance().getOnlinePlayers()) {
                     layouts.put(viewer.getUniqueId(), buildLayout(player, viewer));
                 }
-                publish(player, null, layouts);
+                publish(player, new MultiLinePlayerData.Snapshot(null, Collections.unmodifiableMap(layouts)));
             } else {
-                publish(player, buildLayout(player, player), Collections.emptyMap());
+                publish(player, new MultiLinePlayerData.Snapshot(buildLayout(player, player), Collections.emptyMap()));
             }
         }
         if (configuration.isShowToSelf()) {
@@ -249,21 +247,16 @@ public class MultiLineNameTags extends RefreshableFeature implements JoinListene
     }
 
     /**
-     * Saves computed snapshots and notifies renderer if anything changed.
+     * Saves computed snapshot and notifies renderer if it changed.
      *
      * @param   player
-     *          Player the snapshots belong to
-     * @param   shared
-     *          Snapshot used by all viewers, {@code null} if lines are viewer-specific or not displayed
-     * @param   relational
-     *          Snapshot for each viewer, empty if a shared one is used
+     *          Player the snapshot belongs to
+     * @param   snapshot
+     *          Newly computed snapshot
      */
-    private void publish(@NotNull TabPlayer player, @Nullable MultiLinePlayerData.Layout shared,
-                         @NotNull Map<UUID, MultiLinePlayerData.Layout> relational) {
-        MultiLinePlayerData data = player.multiLineData;
-        if (Objects.equals(shared, data.layout) && relational.equals(data.relationalLayouts)) return;
-        data.layout = shared;
-        data.relationalLayouts = relational.isEmpty() ? Collections.emptyMap() : Collections.unmodifiableMap(relational);
+    private void publish(@NotNull TabPlayer player, @NotNull MultiLinePlayerData.Snapshot snapshot) {
+        if (snapshot.equals(player.multiLineData.snapshot)) return;
+        player.multiLineData.snapshot = snapshot;
         renderer.refreshOwner(player);
     }
 
