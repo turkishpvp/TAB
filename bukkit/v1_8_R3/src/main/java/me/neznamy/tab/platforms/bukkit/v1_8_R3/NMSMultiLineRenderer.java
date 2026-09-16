@@ -172,11 +172,10 @@ public class NMSMultiLineRenderer implements MultiLineRenderer {
         Handler handler = handler(owner);
         if (handler == null) return;
         int entityId = owner.multiLineData.entityId;
-        // Player entity metadata carries the sneak bit, lines start at the right height right away
-        byte flags = handle(owner).getDataWatcher().getByte(0);
         handler.post(() -> {
             if (show) {
-                handler.onSpawn(entityId, flags, false);
+                // Metadata of own entity is sent to the player as well, flags stay up to date after the spawn
+                handler.onSpawn(entityId, handler.sneaking ? FLAG_SNEAKING : 0, false);
             } else {
                 View view = handler.views.remove(entityId);
                 if (view != null) handler.destroyLines(view);
@@ -376,6 +375,9 @@ public class NMSMultiLineRenderer implements MultiLineRenderer {
 
         /** Incoming packets held until next movement packet, starting with an attack on a fake entity */
         @Nullable private List<Object> held;
+
+        /** Sneak state of the viewer, tracked for lines the viewer sees of themselves */
+        private boolean sneaking;
 
         private Handler(@NotNull Channel channel, @NotNull UUID viewerId, @NotNull EntityPlayer viewerHandle) {
             this.channel = channel;
@@ -758,6 +760,10 @@ public class NMSMultiLineRenderer implements MultiLineRenderer {
                     held.add(packet);
                     if (held.size() > 32) releaseHeld(ctx); // Client not sending movement, do not hold forever
                     return;
+                } else if (packet instanceof PacketPlayInEntityAction) {
+                    PacketPlayInEntityAction.EnumPlayerAction action = ((PacketPlayInEntityAction) packet).b();
+                    if (action == PacketPlayInEntityAction.EnumPlayerAction.START_SNEAKING) sneaking = true;
+                    if (action == PacketPlayInEntityAction.EnumPlayerAction.STOP_SNEAKING) sneaking = false;
                 } else if (packet instanceof PacketPlayInUseEntity && USE_ENTITY_ID.getInt(packet) > ID_FLOOR) {
                     held = new ArrayList<>();
                     held.add(packet);
