@@ -16,8 +16,11 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
-import java.util.Objects;
+import java.util.Map;
+import java.util.UUID;
 
 /**
  * Multi-line nametags (lines above and below player's name) rendered by fake entities
@@ -86,7 +89,7 @@ public class MultiLineNameTags extends RefreshableFeature implements JoinListene
     public void unload() {
         renderer.unload();
         for (TabPlayer player : TAB.getInstance().getOnlinePlayers()) {
-            player.multiLineData.layout = null;
+            player.multiLineData.layouts = Collections.emptyMap();
             player.teamData.multiLineActive = false;
             nameTags.getVisibilityManager().updateVisibility(player);
         }
@@ -95,6 +98,9 @@ public class MultiLineNameTags extends RefreshableFeature implements JoinListene
     @Override
     public void onJoin(@NotNull TabPlayer connectedPlayer) {
         loadPlayer(connectedPlayer);
+        for (TabPlayer owner : TAB.getInstance().getOnlinePlayers()) {
+            if (owner != connectedPlayer) update(owner);
+        }
         renderer.onJoin(connectedPlayer);
     }
 
@@ -119,6 +125,12 @@ public class MultiLineNameTags extends RefreshableFeature implements JoinListene
     @Override
     public void onQuit(@NotNull TabPlayer disconnectedPlayer) {
         renderer.onQuit(disconnectedPlayer);
+        disconnectedPlayer.multiLineData.layouts = Collections.emptyMap();
+        for (TabPlayer owner : TAB.getInstance().getOnlinePlayers()) {
+            Map<UUID, MultiLinePlayerData.Layout> layouts = new HashMap<>(owner.multiLineData.layouts);
+            layouts.remove(disconnectedPlayer.getUniqueId());
+            owner.multiLineData.layouts = Collections.unmodifiableMap(layouts);
+        }
     }
 
     @NotNull
@@ -178,37 +190,20 @@ public class MultiLineNameTags extends RefreshableFeature implements JoinListene
         MultiLinePlayerData data = player.multiLineData;
         if (data.lineProperties == null) return; // Player not loaded yet
         boolean active = !data.disabled.get() && !player.teamData.isDisabled();
-        MultiLinePlayerData.Layout layout = null;
+        Map<UUID, MultiLinePlayerData.Layout> layouts = new HashMap<>();
         if (active) {
-            List<String> texts = new ArrayList<>(data.lineProperties.length);
-            List<Double> spacings = new ArrayList<>(data.lineProperties.length);
-            for (int i = 0; i < data.lineProperties.length; i++) {
-                Property property = data.lineProperties[i];
-                String text = property == null ? data.prefix.updateAndGet() + data.name.updateAndGet() + data.suffix.updateAndGet() : property.updateAndGet();
-                // List values in groups.yml/users.yml are joined with new lines, every entry is a separate line
-                String[] parts = text.split("\n", -1);
-                int lastVisible = -1;
-                for (String part : parts) {
-                    // ponytail: relational placeholders are not resolved in lines, they would require per-viewer texts on network threads
-                    String legacy = cache.get(part).toLegacyText();
-                    if (isVisiblyEmpty(legacy)) continue; // Empty lines take no space
-                    if (texts.size() == MultiLineConfiguration.MAX_LINES) break; // Limited by fake entity id block
-                    texts.add(legacy);
-                    spacings.add(configuration.getLineSpacing());
-                    lastVisible = spacings.size() - 1;
-                }
-                // Custom spacing of a property applies below its last line
-                if (lastVisible != -1) spacings.set(lastVisible, configuration.getSpacingBelow(configuration.getLines().get(i)));
+            data.prefix.update();
+            data.name.update();
+            data.suffix.update();
+            for (Property property : data.lineProperties) {
+                if (property != null) property.update();
             }
-            double[] heights = new double[texts.size()];
-            for (int i = 0; i < heights.length - 1; i++) {
-                heights[i] = spacings.get(i);
+            for (TabPlayer viewer : TAB.getInstance().getOnlinePlayers()) {
+                layouts.put(viewer.getUniqueId(), buildLayout(data, viewer));
             }
-            if (heights.length > 0) heights[heights.length - 1] = firstLineHeight;
-            layout = new MultiLinePlayerData.Layout(texts.toArray(new String[0]), heights, configuration.isLowerWhenSneaking());
         }
-        if (!Objects.equals(layout, data.layout)) {
-            data.layout = layout;
+        if (!layouts.equals(data.layouts)) {
+            data.layouts = Collections.unmodifiableMap(layouts);
             renderer.refreshOwner(player);
         }
         if (configuration.isShowToSelf()) {
@@ -223,6 +218,36 @@ public class MultiLineNameTags extends RefreshableFeature implements JoinListene
             player.teamData.multiLineActive = hideVanilla;
             nameTags.getVisibilityManager().updateVisibility(player);
         }
+    }
+
+    /** Resolves viewer-dependent text on the nametag thread, never on a network thread. */
+    @NotNull
+    private MultiLinePlayerData.Layout buildLayout(@NotNull MultiLinePlayerData data, @NotNull TabPlayer viewer) {
+        List<String> texts = new ArrayList<>(data.lineProperties.length);
+        List<Double> spacings = new ArrayList<>(data.lineProperties.length);
+        for (int i = 0; i < data.lineProperties.length; i++) {
+            Property property = data.lineProperties[i];
+            String text = property == null ? data.prefix.getFormat(viewer) + data.name.getFormat(viewer) + data.suffix.getFormat(viewer) : property.getFormat(viewer);
+            // List values in groups.yml/users.yml are joined with new lines, every entry is a separate line
+            String[] parts = text.split("\n", -1);
+            int lastVisible = -1;
+            for (String part : parts) {
+                String legacy = cache.get(part).toLegacyText();
+                if (isVisiblyEmpty(legacy)) continue; // Empty lines take no space
+                if (texts.size() == MultiLineConfiguration.MAX_LINES) break; // Limited by fake entity id block
+                texts.add(legacy);
+                spacings.add(configuration.getLineSpacing());
+                lastVisible = spacings.size() - 1;
+            }
+            // Custom spacing of a property applies below its last line
+            if (lastVisible != -1) spacings.set(lastVisible, configuration.getSpacingBelow(configuration.getLines().get(i)));
+        }
+        double[] heights = new double[texts.size()];
+        for (int i = 0; i < heights.length - 1; i++) {
+            heights[i] = spacings.get(i);
+        }
+        if (heights.length > 0) heights[heights.length - 1] = firstLineHeight;
+        return new MultiLinePlayerData.Layout(texts.toArray(new String[0]), heights, configuration.isLowerWhenSneaking());
     }
 
     private static boolean isVisiblyEmpty(@NotNull String text) {

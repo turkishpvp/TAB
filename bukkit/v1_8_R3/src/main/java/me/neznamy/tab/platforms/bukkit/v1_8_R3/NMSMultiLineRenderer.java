@@ -617,7 +617,7 @@ public class NMSMultiLineRenderer implements MultiLineRenderer {
             if (viewer == null) return null; // Not loaded yet, refreshed on join
             if (owner.multiLineData.spectator || viewer.multiLineData.spectator) return null; // Spectators see invisible entities
             if (!owner.teamData.isNameTagVisibleTo(viewer)) return null;
-            return owner.multiLineData.layout;
+            return owner.multiLineData.layouts.get(viewer.getUniqueId());
         }
 
         private void spawnLines(@NotNull View view, @NotNull TabPlayer owner, @NotNull MultiLinePlayerData.Layout layout) {

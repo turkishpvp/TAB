@@ -6,6 +6,9 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.Arrays;
+import java.util.Collections;
+import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -31,9 +34,9 @@ public class MultiLinePlayerData {
     /** Flag tracking whether the feature is disabled for this player with a condition */
     public final AtomicBoolean disabled = new AtomicBoolean();
 
-    /** Currently displayed lines, {@code null} if no lines should be displayed */
-    @Nullable
-    public volatile Layout layout;
+    /** Immutable per-viewer snapshots, empty when the feature is disabled. */
+    @NotNull
+    public volatile Map<UUID, Layout> layouts = Collections.emptyMap();
 
     /** Whether the player is currently shown their own lines */
     public volatile boolean selfView;
