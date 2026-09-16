@@ -44,6 +44,12 @@ public class MultiLineNameTags extends RefreshableFeature implements JoinListene
     /** Condition a line requires to be displayed, indexed like configured lines, {@code null} if the line has none */
     private final Condition[] lineConditions;
 
+    /** Conditions of line cases, indexed by line and case, {@code null} entries for lines without cases */
+    private final Condition[][] caseConditions;
+
+    /** Texts of line cases, indexed by line and case, {@code null} entries for lines without cases */
+    private final String[][] caseTexts;
+
     /** Whether any line condition is relational, which makes lines viewer-specific */
     private final boolean relationalConditions;
 
@@ -84,6 +90,24 @@ public class MultiLineNameTags extends RefreshableFeature implements JoinListene
             // Refresh lines when the condition changes value
             addUsedPlaceholder(condition.hasRelationalContent() ? condition.getRelationalPlaceholderIdentifier() : condition.getPlaceholderIdentifier());
             if (condition.hasRelationalContent()) relational = true;
+        }
+        caseConditions = new Condition[lineConditions.length][];
+        caseTexts = new String[lineConditions.length][];
+        for (int i = 0; i < lineConditions.length; i++) {
+            List<MultiLineConfiguration.LineCase> cases = configuration.getLineCases().get(configuration.getLines().get(i));
+            if (cases == null) continue;
+            caseConditions[i] = new Condition[cases.size()];
+            caseTexts[i] = new String[cases.size()];
+            for (int j = 0; j < cases.size(); j++) {
+                MultiLineConfiguration.LineCase lineCase = cases.get(j);
+                caseTexts[i][j] = lineCase.getText();
+                if (lineCase.getCondition() == null) continue;
+                Condition condition = TAB.getInstance().getPlaceholderManager().getConditionManager().getByNameOrExpression(lineCase.getCondition());
+                if (condition == null) continue;
+                caseConditions[i][j] = condition;
+                addUsedPlaceholder(condition.hasRelationalContent() ? condition.getRelationalPlaceholderIdentifier() : condition.getPlaceholderIdentifier());
+                if (condition.hasRelationalContent()) relational = true;
+            }
         }
         relationalConditions = relational;
 
@@ -151,6 +175,15 @@ public class MultiLineNameTags extends RefreshableFeature implements JoinListene
                 properties[i] = player.loadPropertyFromConfig(this, line, "");
             }
         }
+        Property[][] caseProperties = new Property[caseTexts.length][];
+        for (int i = 0; i < caseTexts.length; i++) {
+            if (caseTexts[i] == null) continue;
+            caseProperties[i] = new Property[caseTexts[i].length];
+            for (int j = 0; j < caseTexts[i].length; j++) {
+                caseProperties[i][j] = new Property(this, player, caseTexts[i][j]);
+            }
+        }
+        data.caseProperties = caseProperties;
         data.lineProperties = properties;
         data.disabled.set(disableChecker.isDisableConditionMet(player));
         update(player);
@@ -222,6 +255,12 @@ public class MultiLineNameTags extends RefreshableFeature implements JoinListene
             for (Property property : data.lineProperties) {
                 if (property != null) property.update();
             }
+            for (Property[] cases : data.caseProperties) {
+                if (cases == null) continue;
+                for (Property property : cases) {
+                    property.update();
+                }
+            }
             if (isViewerSpecific(data)) {
                 Map<UUID, MultiLinePlayerData.Layout> layouts = new HashMap<>();
                 for (TabPlayer viewer : TAB.getInstance().getOnlinePlayers()) {
@@ -273,6 +312,12 @@ public class MultiLineNameTags extends RefreshableFeature implements JoinListene
         for (Property property : data.lineProperties) {
             if (property != null && property.isViewerSpecific()) return true;
         }
+        for (Property[] cases : data.caseProperties) {
+            if (cases == null) continue;
+            for (Property property : cases) {
+                if (property.isViewerSpecific()) return true;
+            }
+        }
         return false;
     }
 
@@ -284,8 +329,15 @@ public class MultiLineNameTags extends RefreshableFeature implements JoinListene
         List<Double> spacings = new ArrayList<>(data.lineProperties.length);
         for (int i = 0; i < data.lineProperties.length; i++) {
             if (!isLineVisible(i, player, viewer)) continue;
-            Property property = data.lineProperties[i];
-            String text = property == null ? data.prefix.getFormat(viewer) + data.name.getFormat(viewer) + data.suffix.getFormat(viewer) : property.getFormat(viewer);
+            String text;
+            if (data.caseProperties[i] != null) {
+                Property selected = selectCase(i, data.caseProperties[i], player, viewer);
+                if (selected == null) continue; // No case matched, line is not displayed
+                text = selected.getFormat(viewer);
+            } else {
+                Property property = data.lineProperties[i];
+                text = property == null ? data.prefix.getFormat(viewer) + data.name.getFormat(viewer) + data.suffix.getFormat(viewer) : property.getFormat(viewer);
+            }
             // List values in groups.yml/users.yml are joined with new lines, every entry is a separate line
             String[] parts = text.split("\n", -1);
             int lastVisible = -1;
@@ -323,6 +375,29 @@ public class MultiLineNameTags extends RefreshableFeature implements JoinListene
         Condition condition = lineConditions[line];
         if (condition == null) return true;
         return condition.hasRelationalContent() ? condition.isMet(viewer, player) : condition.isMet(player);
+    }
+
+    /**
+     * Returns first text of a line with a met condition, {@code null} if no case matched.
+     *
+     * @param   line
+     *          Index of the line in configuration
+     * @param   cases
+     *          Texts of the line in configured order
+     * @param   player
+     *          Player the lines belong to
+     * @param   viewer
+     *          Player viewing the lines
+     * @return  Text to display or {@code null} if the line should be hidden
+     */
+    @Nullable
+    private Property selectCase(int line, @NotNull Property[] cases, @NotNull TabPlayer player, @NotNull TabPlayer viewer) {
+        for (int i = 0; i < cases.length; i++) {
+            Condition condition = caseConditions[line][i];
+            if (condition == null) return cases[i]; // Case without a condition always matches
+            if (condition.hasRelationalContent() ? condition.isMet(viewer, player) : condition.isMet(player)) return cases[i];
+        }
+        return null;
     }
 
     private static boolean isVisiblyEmpty(@NotNull String text) {

@@ -8,6 +8,7 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.*;
+import java.util.stream.Collectors;
 
 /**
  * Class for storing multi-line nametag configuration settings.
@@ -43,6 +44,9 @@ public class MultiLineConfiguration {
     /** Condition a line requires to be displayed, by line name. Values are condition names or expressions */
     @NotNull private final Map<String, String> lineConditions;
 
+    /** Texts of a line with the condition required to display them, by line name */
+    @NotNull private final Map<String, List<LineCase>> lineCases;
+
     private final boolean lowerWhenSneaking;
 
     @NotNull private final String disableCondition;
@@ -65,6 +69,20 @@ public class MultiLineConfiguration {
     }
 
     /**
+     * One of the texts a line can display and the condition required to display it.
+     */
+    @Getter
+    @AllArgsConstructor
+    public static class LineCase {
+
+        /** Condition name or expression required to display the text, {@code null} to always display it */
+        @Nullable private final String condition;
+
+        /** Text to display, multiple lines separated with new lines */
+        @NotNull private final String text;
+    }
+
+    /**
      * Returns instance of this class created from given configuration section. If there are
      * issues in the configuration, console warns are printed.
      *
@@ -75,7 +93,7 @@ public class MultiLineConfiguration {
     @NotNull
     public static MultiLineConfiguration fromSection(@NotNull ConfigurationSection section) {
         section.checkForUnknownKey(Arrays.asList("enabled", "lines", "first-line-height", "line-spacing",
-                "custom-line-spacing", "line-conditions", "lower-when-sneaking", "disable-condition",
+                "custom-line-spacing", "line-conditions", "line-cases", "lower-when-sneaking", "disable-condition",
                 "show-to-self", "show-to-self-condition"));
         List<String> lines = new ArrayList<>();
         for (String line : section.getStringList("lines", Arrays.asList("abovename", NAMETAG_LINE, "belowname"))) {
@@ -97,12 +115,9 @@ public class MultiLineConfiguration {
         }
         double lineSpacing = height(section, "line-spacing", section.getNumber("line-spacing", 0.26).doubleValue(), 0, MAX_SPACING);
         Map<String, Double> customLineSpacing = new HashMap<>();
-        for (Map.Entry<Object, Object> entry : section.getMap("custom-line-spacing", Collections.emptyMap()).entrySet()) {
-            String line = String.valueOf(entry.getKey()).toLowerCase(Locale.US);
-            if (!lines.contains(line)) {
-                section.startupWarn("custom-line-spacing defines spacing for line \"" + line + "\", which is not in the list of lines.");
-                continue;
-            }
+        for (Map.Entry<Object, Object> entry : section.<Object, Object>getMap("custom-line-spacing", Collections.emptyMap()).entrySet()) {
+            String line = lineName(section, entry.getKey(), lines, "custom-line-spacing");
+            if (line == null) continue;
             try {
                 customLineSpacing.put(line, height(section, "custom-line-spacing." + line, Double.parseDouble(String.valueOf(entry.getValue())), 0, MAX_SPACING));
             } catch (NumberFormatException e) {
@@ -112,12 +127,17 @@ public class MultiLineConfiguration {
 
         Map<String, String> lineConditions = new HashMap<>();
         for (Map.Entry<Object, Object> entry : section.<Object, Object>getMap("line-conditions", Collections.emptyMap()).entrySet()) {
-            String line = String.valueOf(entry.getKey()).toLowerCase(Locale.US);
-            if (!lines.contains(line)) {
-                section.startupWarn("line-conditions defines a condition for line \"" + line + "\", which is not in the list of lines.");
-                continue;
-            }
+            String line = lineName(section, entry.getKey(), lines, "line-conditions");
+            if (line == null) continue;
             lineConditions.put(line, String.valueOf(entry.getValue()));
+        }
+
+        Map<String, List<LineCase>> lineCases = new HashMap<>();
+        for (Map.Entry<Object, Object> entry : section.<Object, Object>getMap("line-cases", Collections.emptyMap()).entrySet()) {
+            String line = lineName(section, entry.getKey(), lines, "line-cases");
+            if (line == null) continue;
+            List<LineCase> cases = readCases(section, line, entry.getValue());
+            if (!cases.isEmpty()) lineCases.put(line, cases);
         }
 
         // Allow defining and changing lines as group/user properties
@@ -125,9 +145,86 @@ public class MultiLineConfiguration {
         for (String line : lines) {
             if (!line.equals(NAMETAG_LINE)) addValidProperty(line);
         }
-        return new MultiLineConfiguration(section, lines, firstLineHeight, lineSpacing, customLineSpacing, lineConditions,
+        return new MultiLineConfiguration(section, lines, firstLineHeight, lineSpacing, customLineSpacing, lineConditions, lineCases,
                 section.getBoolean("lower-when-sneaking", true), section.getString("disable-condition", "%world%=disabledworld"),
                 section.getBoolean("show-to-self", false), section.getString("show-to-self-condition", ""));
+    }
+
+    /**
+     * Reads texts and their conditions of a single line.
+     *
+     * @param   section
+     *          Configuration section for printing warns
+     * @param   line
+     *          Name of the line the cases belong to
+     * @param   value
+     *          Configured value of the line
+     * @return  Cases of the line in the configured order
+     */
+    @NotNull
+    private static List<LineCase> readCases(@NotNull ConfigurationSection section, @NotNull String line, @Nullable Object value) {
+        if (!(value instanceof List)) {
+            section.startupWarn("line-cases of line \"" + line + "\" must be a list of texts with conditions.");
+            return Collections.emptyList();
+        }
+        List<LineCase> cases = new ArrayList<>();
+        for (Object element : (List<?>) value) {
+            if (!(element instanceof Map)) {
+                section.startupWarn("Each entry of line-cases of line \"" + line + "\" must have a \"text\" and optionally a \"condition\".");
+                continue;
+            }
+            Map<?, ?> map = (Map<?, ?>) element;
+            for (Object key : map.keySet()) {
+                if (!"condition".equals(key) && !"text".equals(key)) {
+                    section.startupWarn("Unknown key \"" + key + "\" in line-cases of line \"" + line + "\", expected \"condition\" or \"text\".");
+                }
+            }
+            Object text = map.get("text");
+            if (text == null) {
+                section.startupWarn("An entry of line-cases of line \"" + line + "\" is missing \"text\".");
+                continue;
+            }
+            Object condition = map.get("condition");
+            cases.add(new LineCase(condition == null ? null : String.valueOf(condition), toText(text)));
+        }
+        return cases;
+    }
+
+    /**
+     * Converts configured text into a single string, joining lists with new lines the same way
+     * group and user properties are joined.
+     *
+     * @param   value
+     *          Configured value
+     * @return  Text to display
+     */
+    @NotNull
+    private static String toText(@NotNull Object value) {
+        if (value instanceof List) {
+            return ((List<?>) value).stream().map(String::valueOf).collect(Collectors.joining("\n"));
+        }
+        return String.valueOf(value);
+    }
+
+    /**
+     * Returns configured line name if such line exists, {@code null} with a warn if it does not.
+     *
+     * @param   section
+     *          Configuration section for printing warns
+     * @param   key
+     *          Configured key
+     * @param   lines
+     *          Configured lines
+     * @param   option
+     *          Name of the option the key belongs to, used in the warn message
+     * @return  Line name or {@code null} if there is no such line
+     */
+    @Nullable
+    private static String lineName(@NotNull ConfigurationSection section, @NotNull Object key, @NotNull List<String> lines, @NotNull String option) {
+        String line = String.valueOf(key).toLowerCase(Locale.US);
+        if (lines.contains(line)) return line;
+        section.startupWarn(option + " contains line \"" + line + "\", which is not in the list of lines.");
+        return null;
     }
 
     private static double height(@NotNull ConfigurationSection section, @NotNull String path, double value, double min, double max) {

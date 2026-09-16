@@ -22,6 +22,10 @@ public class MultiLinePlayerData {
     @Nullable
     public Property[] lineProperties;
 
+    /** Texts a line can display, indexed by line and case, {@code null} entry for lines without cases */
+    @Nullable
+    public Property[][] caseProperties;
+
     /** Properties forming the "nametag" line */
     @Nullable
     public Property prefix;

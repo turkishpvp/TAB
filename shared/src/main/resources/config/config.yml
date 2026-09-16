@@ -93,6 +93,21 @@ multiline-nametags:
   # To show different text instead of hiding the line, use %condition:name% inside the line value.
   line-conditions: {}
   # abovename: '%player_level%>=10'
+  # Show different text on the same line based on conditions. First case with a met condition is used,
+  # if no case matches, the line is not displayed. A case without a condition always matches, use it
+  # as the last entry for a default text. Relational conditions are evaluated for each viewer separately.
+  # Text can be a list as well, each entry is then displayed as its own line.
+  line-cases: {}
+  # abovename:
+  #   - condition: '%world%=spawn'
+  #     text: '%vault-prefix%'
+  #   - condition: '%rel_bolt_relation%=ENEMY'
+  #     text: '&cRival'
+  #   - condition: '%rel_bolt_relation%=TEAM'
+  #     text:
+  #       - '&aTeammate'
+  #       - '&c%player_health%'
+  #   - text: '&7%animation:mytag%'
   # Move lines down while sneaking like vanilla nametag. Lines always turn translucent and hidden behind walls when sneaking.
   lower-when-sneaking: true
   disable-condition: '%world%=disabledworld'
