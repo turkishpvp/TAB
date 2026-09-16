@@ -88,6 +88,11 @@ multiline-nametags:
   # Space below the last line of a specific property (for example between abovename list and nametag)
   custom-line-spacing:
     abovename: 0.3
+  # Show a line only when a condition is met. Value is a condition name from the "conditions" section
+  # above or a condition expression. Relational conditions (%rel_...% inside) are evaluated per viewer.
+  # To show different text instead of hiding the line, use %condition:name% inside the line value.
+  line-conditions: {}
+  # abovename: '%player_level%>=10'
   # Move lines down while sneaking like vanilla nametag. Lines always turn translucent and hidden behind walls when sneaking.
   lower-when-sneaking: true
   disable-condition: '%world%=disabledworld'

@@ -270,6 +270,16 @@ public class Property {
     }
 
     /**
+     * Returns {@code true} if the value may be different for each viewer because it contains
+     * relational placeholders, {@code false} if all viewers see the same text.
+     *
+     * @return  {@code true} if value is viewer-specific, {@code false} if not
+     */
+    public boolean isViewerSpecific() {
+        return mayContainRelPlaceholders;
+    }
+
+    /**
      * Returns last known value
      *
      * @return  last known value

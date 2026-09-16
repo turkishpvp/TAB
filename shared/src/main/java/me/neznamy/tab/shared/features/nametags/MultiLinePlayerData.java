@@ -34,9 +34,13 @@ public class MultiLinePlayerData {
     /** Flag tracking whether the feature is disabled for this player with a condition */
     public final AtomicBoolean disabled = new AtomicBoolean();
 
-    /** Immutable per-viewer snapshots, empty when the feature is disabled. */
+    /** Snapshot shown to all viewers, {@code null} when lines are viewer-specific or not displayed */
+    @Nullable
+    public volatile Layout layout;
+
+    /** Immutable snapshots for each viewer, empty when all viewers share {@link #layout} */
     @NotNull
-    public volatile Map<UUID, Layout> layouts = Collections.emptyMap();
+    public volatile Map<UUID, Layout> relationalLayouts = Collections.emptyMap();
 
     /** Whether the player is currently shown their own lines */
     public volatile boolean selfView;

@@ -15,18 +15,16 @@ import me.neznamy.tab.shared.util.cache.StringToComponentCache;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.UUID;
+import java.util.*;
 
 /**
  * Multi-line nametags (lines above and below player's name) rendered by fake entities
  * riding the player. Client moves them together with the player, so no packets are sent
  * on movement. Texts are computed on nametag thread and published as immutable snapshots
  * for the renderer, which only works on network threads.
+ * <p>
+ * Lines are only computed for each viewer separately if they contain something viewer-specific
+ * (relational placeholders or relational conditions), otherwise all viewers share one snapshot.
  */
 public class MultiLineNameTags extends RefreshableFeature implements JoinListener, QuitListener, Loadable, UnLoadable,
         WorldSwitchListener, GroupListener, GameModeListener, CustomThreaded {
@@ -43,8 +41,18 @@ public class MultiLineNameTags extends RefreshableFeature implements JoinListene
     /** Height of the lowest line above player's feet */
     private final double firstLineHeight;
 
+    /** Condition a line requires to be displayed, indexed like configured lines, {@code null} if the line has none */
+    private final Condition[] lineConditions;
+
+    /** Whether any line condition is relational, which makes lines viewer-specific */
+    private final boolean relationalConditions;
+
+    /** Condition for showing a player their own lines, {@code null} if the option is off or unconditional */
+    @Nullable
+    private final Condition showToSelfCondition;
+
     /**
-     * Constructs new instance and registers disable condition checker.
+     * Constructs new instance, loads line conditions and registers disable condition checker.
      *
      * @param   configuration
      *          Feature configuration
@@ -53,10 +61,6 @@ public class MultiLineNameTags extends RefreshableFeature implements JoinListene
      * @param   renderer
      *          Platform's renderer
      */
-    /** Condition for showing a player their own lines, {@code null} if the feature is off or unconditional */
-    @Nullable
-    private final Condition showToSelfCondition;
-
     public MultiLineNameTags(@NotNull MultiLineConfiguration configuration, @NotNull NameTag nameTags, @NotNull MultiLineRenderer renderer) {
         this.configuration = configuration;
         this.nameTags = nameTags;
@@ -68,10 +72,26 @@ public class MultiLineNameTags extends RefreshableFeature implements JoinListene
             // Vanilla tag is at 2.3 with belowname score 0.28 under it, start above them if vanilla tag stays
             firstLineHeight = replacesVanillaTag ? 2.34 : TAB.getInstance().getConfiguration().getConfig().getBelowname() != null ? 2.86 : 2.58;
         }
+
+        lineConditions = new Condition[configuration.getLines().size()];
+        boolean relational = false;
+        for (int i = 0; i < lineConditions.length; i++) {
+            String expression = configuration.getLineConditions().get(configuration.getLines().get(i));
+            if (expression == null) continue;
+            Condition condition = TAB.getInstance().getPlaceholderManager().getConditionManager().getByNameOrExpression(expression);
+            if (condition == null) continue;
+            lineConditions[i] = condition;
+            // Refresh lines when the condition changes value
+            addUsedPlaceholder(condition.hasRelationalContent() ? condition.getRelationalPlaceholderIdentifier() : condition.getPlaceholderIdentifier());
+            if (condition.hasRelationalContent()) relational = true;
+        }
+        relationalConditions = relational;
+
         showToSelfCondition = configuration.isShowToSelf()
                 ? TAB.getInstance().getPlaceholderManager().getConditionManager().getByNameOrExpression(configuration.getShowToSelfCondition())
                 : null;
         if (showToSelfCondition != null) addUsedPlaceholder(showToSelfCondition.getPlaceholderIdentifier());
+
         disableChecker = new DisableChecker(this, TAB.getInstance().getPlaceholderManager().getConditionManager().getByNameOrExpression(configuration.getDisableCondition()),
                 this::onDisableConditionChange, p -> p.multiLineData.disabled);
         TAB.getInstance().getFeatureManager().registerFeature(TabConstants.Feature.MULTILINE_NAMETAGS + "-Condition", disableChecker);
@@ -89,7 +109,8 @@ public class MultiLineNameTags extends RefreshableFeature implements JoinListene
     public void unload() {
         renderer.unload();
         for (TabPlayer player : TAB.getInstance().getOnlinePlayers()) {
-            player.multiLineData.layouts = Collections.emptyMap();
+            player.multiLineData.layout = null;
+            player.multiLineData.relationalLayouts = Collections.emptyMap();
             player.teamData.multiLineActive = false;
             nameTags.getVisibilityManager().updateVisibility(player);
         }
@@ -99,9 +120,24 @@ public class MultiLineNameTags extends RefreshableFeature implements JoinListene
     public void onJoin(@NotNull TabPlayer connectedPlayer) {
         loadPlayer(connectedPlayer);
         for (TabPlayer owner : TAB.getInstance().getOnlinePlayers()) {
-            if (owner != connectedPlayer) update(owner);
+            // Only viewer-specific players need a snapshot for the new viewer, everyone else shares one
+            if (owner != connectedPlayer && !owner.multiLineData.relationalLayouts.isEmpty()) update(owner);
         }
         renderer.onJoin(connectedPlayer);
+    }
+
+    @Override
+    public void onQuit(@NotNull TabPlayer disconnectedPlayer) {
+        renderer.onQuit(disconnectedPlayer);
+        disconnectedPlayer.multiLineData.layout = null;
+        disconnectedPlayer.multiLineData.relationalLayouts = Collections.emptyMap();
+        for (TabPlayer owner : TAB.getInstance().getOnlinePlayers()) {
+            Map<UUID, MultiLinePlayerData.Layout> layouts = owner.multiLineData.relationalLayouts;
+            if (!layouts.containsKey(disconnectedPlayer.getUniqueId())) continue;
+            Map<UUID, MultiLinePlayerData.Layout> copy = new HashMap<>(layouts);
+            copy.remove(disconnectedPlayer.getUniqueId());
+            owner.multiLineData.relationalLayouts = Collections.unmodifiableMap(copy);
+        }
     }
 
     private void loadPlayer(@NotNull TabPlayer player) {
@@ -120,17 +156,6 @@ public class MultiLineNameTags extends RefreshableFeature implements JoinListene
         data.lineProperties = properties;
         data.disabled.set(disableChecker.isDisableConditionMet(player));
         update(player);
-    }
-
-    @Override
-    public void onQuit(@NotNull TabPlayer disconnectedPlayer) {
-        renderer.onQuit(disconnectedPlayer);
-        disconnectedPlayer.multiLineData.layouts = Collections.emptyMap();
-        for (TabPlayer owner : TAB.getInstance().getOnlinePlayers()) {
-            Map<UUID, MultiLinePlayerData.Layout> layouts = new HashMap<>(owner.multiLineData.layouts);
-            layouts.remove(disconnectedPlayer.getUniqueId());
-            owner.multiLineData.layouts = Collections.unmodifiableMap(layouts);
-        }
     }
 
     @NotNull
@@ -170,8 +195,8 @@ public class MultiLineNameTags extends RefreshableFeature implements JoinListene
         player.updatePropertyFromConfig(data.prefix, "");
         player.updatePropertyFromConfig(data.name, player.getName());
         player.updatePropertyFromConfig(data.suffix, "");
-        for (int i = 0; i < data.lineProperties.length; i++) {
-            if (data.lineProperties[i] != null) player.updatePropertyFromConfig(data.lineProperties[i], "");
+        for (Property property : data.lineProperties) {
+            if (property != null) player.updatePropertyFromConfig(property, "");
         }
         update(player);
     }
@@ -190,21 +215,24 @@ public class MultiLineNameTags extends RefreshableFeature implements JoinListene
         MultiLinePlayerData data = player.multiLineData;
         if (data.lineProperties == null) return; // Player not loaded yet
         boolean active = !data.disabled.get() && !player.teamData.isDisabled();
-        Map<UUID, MultiLinePlayerData.Layout> layouts = new HashMap<>();
-        if (active) {
+        if (!active) {
+            publish(player, null, Collections.emptyMap());
+        } else {
             data.prefix.update();
             data.name.update();
             data.suffix.update();
             for (Property property : data.lineProperties) {
                 if (property != null) property.update();
             }
-            for (TabPlayer viewer : TAB.getInstance().getOnlinePlayers()) {
-                layouts.put(viewer.getUniqueId(), buildLayout(data, viewer));
+            if (isViewerSpecific(data)) {
+                Map<UUID, MultiLinePlayerData.Layout> layouts = new HashMap<>();
+                for (TabPlayer viewer : TAB.getInstance().getOnlinePlayers()) {
+                    layouts.put(viewer.getUniqueId(), buildLayout(player, viewer));
+                }
+                publish(player, null, layouts);
+            } else {
+                publish(player, buildLayout(player, player), Collections.emptyMap());
             }
-        }
-        if (!layouts.equals(data.layouts)) {
-            data.layouts = Collections.unmodifiableMap(layouts);
-            renderer.refreshOwner(player);
         }
         if (configuration.isShowToSelf()) {
             boolean selfView = active && (showToSelfCondition == null || showToSelfCondition.isMet(player));
@@ -220,12 +248,49 @@ public class MultiLineNameTags extends RefreshableFeature implements JoinListene
         }
     }
 
+    /**
+     * Saves computed snapshots and notifies renderer if anything changed.
+     *
+     * @param   player
+     *          Player the snapshots belong to
+     * @param   shared
+     *          Snapshot used by all viewers, {@code null} if lines are viewer-specific or not displayed
+     * @param   relational
+     *          Snapshot for each viewer, empty if a shared one is used
+     */
+    private void publish(@NotNull TabPlayer player, @Nullable MultiLinePlayerData.Layout shared,
+                         @NotNull Map<UUID, MultiLinePlayerData.Layout> relational) {
+        MultiLinePlayerData data = player.multiLineData;
+        if (Objects.equals(shared, data.layout) && relational.equals(data.relationalLayouts)) return;
+        data.layout = shared;
+        data.relationalLayouts = relational.isEmpty() ? Collections.emptyMap() : Collections.unmodifiableMap(relational);
+        renderer.refreshOwner(player);
+    }
+
+    /**
+     * Returns {@code true} if lines can be different for each viewer, which requires a snapshot per viewer.
+     *
+     * @param   data
+     *          Player's data with updated properties
+     * @return  {@code true} if lines are viewer-specific, {@code false} if all viewers see the same lines
+     */
+    private boolean isViewerSpecific(@NotNull MultiLinePlayerData data) {
+        if (relationalConditions) return true;
+        if (data.prefix.isViewerSpecific() || data.name.isViewerSpecific() || data.suffix.isViewerSpecific()) return true;
+        for (Property property : data.lineProperties) {
+            if (property != null && property.isViewerSpecific()) return true;
+        }
+        return false;
+    }
+
     /** Resolves viewer-dependent text on the nametag thread, never on a network thread. */
     @NotNull
-    private MultiLinePlayerData.Layout buildLayout(@NotNull MultiLinePlayerData data, @NotNull TabPlayer viewer) {
+    private MultiLinePlayerData.Layout buildLayout(@NotNull TabPlayer player, @NotNull TabPlayer viewer) {
+        MultiLinePlayerData data = player.multiLineData;
         List<String> texts = new ArrayList<>(data.lineProperties.length);
         List<Double> spacings = new ArrayList<>(data.lineProperties.length);
         for (int i = 0; i < data.lineProperties.length; i++) {
+            if (!isLineVisible(i, player, viewer)) continue;
             Property property = data.lineProperties[i];
             String text = property == null ? data.prefix.getFormat(viewer) + data.name.getFormat(viewer) + data.suffix.getFormat(viewer) : property.getFormat(viewer);
             // List values in groups.yml/users.yml are joined with new lines, every entry is a separate line
@@ -248,6 +313,23 @@ public class MultiLineNameTags extends RefreshableFeature implements JoinListene
         }
         if (heights.length > 0) heights[heights.length - 1] = firstLineHeight;
         return new MultiLinePlayerData.Layout(texts.toArray(new String[0]), heights, configuration.isLowerWhenSneaking());
+    }
+
+    /**
+     * Returns {@code true} if the line at given index passes its configured condition.
+     *
+     * @param   line
+     *          Index of the line in configuration
+     * @param   player
+     *          Player the lines belong to
+     * @param   viewer
+     *          Player viewing the lines
+     * @return  {@code true} if the line should be displayed, {@code false} if not
+     */
+    private boolean isLineVisible(int line, @NotNull TabPlayer player, @NotNull TabPlayer viewer) {
+        Condition condition = lineConditions[line];
+        if (condition == null) return true;
+        return condition.hasRelationalContent() ? condition.isMet(viewer, player) : condition.isMet(player);
     }
 
     private static boolean isVisiblyEmpty(@NotNull String text) {

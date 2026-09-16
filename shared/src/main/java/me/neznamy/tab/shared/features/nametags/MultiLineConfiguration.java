@@ -40,6 +40,9 @@ public class MultiLineConfiguration {
     /** Space between a line and the line below it, by line name */
     @NotNull private final Map<String, Double> customLineSpacing;
 
+    /** Condition a line requires to be displayed, by line name. Values are condition names or expressions */
+    @NotNull private final Map<String, String> lineConditions;
+
     private final boolean lowerWhenSneaking;
 
     @NotNull private final String disableCondition;
@@ -72,7 +75,7 @@ public class MultiLineConfiguration {
     @NotNull
     public static MultiLineConfiguration fromSection(@NotNull ConfigurationSection section) {
         section.checkForUnknownKey(Arrays.asList("enabled", "lines", "first-line-height", "line-spacing",
-                "custom-line-spacing", "lower-when-sneaking", "disable-condition",
+                "custom-line-spacing", "line-conditions", "lower-when-sneaking", "disable-condition",
                 "show-to-self", "show-to-self-condition"));
         List<String> lines = new ArrayList<>();
         for (String line : section.getStringList("lines", Arrays.asList("abovename", NAMETAG_LINE, "belowname"))) {
@@ -107,12 +110,22 @@ public class MultiLineConfiguration {
             }
         }
 
+        Map<String, String> lineConditions = new HashMap<>();
+        for (Map.Entry<Object, Object> entry : section.<Object, Object>getMap("line-conditions", Collections.emptyMap()).entrySet()) {
+            String line = String.valueOf(entry.getKey()).toLowerCase(Locale.US);
+            if (!lines.contains(line)) {
+                section.startupWarn("line-conditions defines a condition for line \"" + line + "\", which is not in the list of lines.");
+                continue;
+            }
+            lineConditions.put(line, String.valueOf(entry.getValue()));
+        }
+
         // Allow defining and changing lines as group/user properties
         addValidProperty("customtagname");
         for (String line : lines) {
             if (!line.equals(NAMETAG_LINE)) addValidProperty(line);
         }
-        return new MultiLineConfiguration(section, lines, firstLineHeight, lineSpacing, customLineSpacing,
+        return new MultiLineConfiguration(section, lines, firstLineHeight, lineSpacing, customLineSpacing, lineConditions,
                 section.getBoolean("lower-when-sneaking", true), section.getString("disable-condition", "%world%=disabledworld"),
                 section.getBoolean("show-to-self", false), section.getString("show-to-self-condition", ""));
     }
