@@ -19,7 +19,11 @@ public interface PropertyConfiguration {
 
     /** List of all valid properties for groups and users */
     @NotNull
-    List<String> VALID_PROPERTIES = Lists.newArrayList("tagprefix", "tagsuffix", "tabprefix", "customtabname", "tabsuffix");
+    List<String> VALID_PROPERTIES = Lists.newArrayList("tagprefix", "tagsuffix", "tabprefix", "customtabname", "tabsuffix",
+            "customtagname");
+
+    /** Amount of properties the plugin itself defines, everything above this comes from config */
+    int BUILT_IN_PROPERTY_COUNT = VALID_PROPERTIES.size();
 
     /**
      * Sets property value of group or user to specified value. If {@code world} or

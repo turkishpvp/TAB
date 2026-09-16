@@ -141,7 +141,6 @@ public class MultiLineConfiguration {
         }
 
         // Allow defining and changing lines as group/user properties
-        addValidProperty("customtagname");
         for (String line : lines) {
             if (!line.equals(NAMETAG_LINE)) addValidProperty(line);
         }
