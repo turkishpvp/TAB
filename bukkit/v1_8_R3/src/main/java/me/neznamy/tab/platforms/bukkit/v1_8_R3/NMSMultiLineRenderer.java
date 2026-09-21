@@ -66,6 +66,21 @@ public class NMSMultiLineRenderer implements MultiLineRenderer {
     private static final double HIT_TOLERANCE = 0.1;
     private static final double REACH = 6;
 
+    /**
+     * Distance in blocks within which a viewer can click or hit the owner, so no line may sit in the way.
+     *
+     * <p>Marker armor stands do not solve this. A marker's own box is zero, but the client grows every
+     * entity's box by {@code Entity.ao()} = 0.1 on each side when it ray traces, and armor stands do not
+     * override that: each line is a 0.2 block cube on the crosshair. Stacked lines therefore build a
+     * column above the head which swallows block placement and hits coming from above, and the more
+     * lines a player has the worse it gets.</p>
+     */
+    private static final double CLOSE_RANGE = 6;
+    /** Lines kept at close range, counted from the bottom: the nametag and the line under it (name, health, ping) */
+    private static final int CLOSE_LINES = 2;
+    /** Custom name length the 1.8 client accepts; a merged close-range line must stay under it */
+    private static final int MAX_NAME_LENGTH = 64;
+
     private static final int TYPE_ARMOR_STAND = 30;
 
     private static final byte FLAG_SNEAKING = 0x02;
@@ -286,6 +301,12 @@ public class NMSMultiLineRenderer implements MultiLineRenderer {
         /** Height of each line's stand above the owner's feet, same order as {@link #lineIds} */
         private double[] lineOffsets;
 
+        /**
+         * Whether the viewer was within {@link #CLOSE_RANGE} when these lines were built. Crossing that
+         * distance changes how many lines exist, so the state is kept to know when to rebuild.
+         */
+        private boolean close;
+
         private View(int entityId) {
             this.entityId = entityId;
         }
@@ -422,6 +443,7 @@ public class NMSMultiLineRenderer implements MultiLineRenderer {
             View view = views.get(MOVE_ID.getInt(packet));
             if (view == null || view.entityCount == 0) return;
             mirrorMove(view, MOVE_DX.getByte(packet), MOVE_DY.getByte(packet), MOVE_DZ.getByte(packet));
+            syncRange();
         }
 
         @SneakyThrows
@@ -429,6 +451,7 @@ public class NMSMultiLineRenderer implements MultiLineRenderer {
             View view = views.get(TELEPORT_ID.getInt(packet));
             if (view == null || view.entityCount == 0) return;
             mirrorTeleport(view, TELEPORT_X.getInt(packet), TELEPORT_Y.getInt(packet), TELEPORT_Z.getInt(packet));
+            syncRange();
         }
 
         private void onSpawn(int entityId, byte flags, boolean fromPacket) {
@@ -583,7 +606,68 @@ public class NMSMultiLineRenderer implements MultiLineRenderer {
             if (viewer == null) return null; // Not loaded yet, refreshed on join
             if (owner.multiLineData.spectator || viewer.multiLineData.spectator) return null; // Spectators see invisible entities
             if (!owner.teamData.isNameTagVisibleTo(viewer)) return null;
-            return owner.multiLineData.snapshot.forViewer(viewer.getUniqueId());
+            MultiLinePlayerData.Layout layout = owner.multiLineData.snapshot.forViewer(viewer.getUniqueId());
+            if (layout == null) return null;
+            view.close = isClose(owner);
+            return view.close ? collapse(layout) : layout;
+        }
+
+        /**
+         * Returns the layout a viewer standing next to the owner gets: one line instead of the full stack.
+         *
+         * <p>Every line costs a 0.2 block cube on the crosshair (see {@link #CLOSE_RANGE}), so at melee
+         * range the decoration above the head has to go. What is kept are the lowest {@link #CLOSE_LINES}
+         * lines, which on this network carry the name and the health/ping line, merged into a single stand
+         * so only one cube is left and it sits where the vanilla nametag would be. Everything above it,
+         * the league tag and the RAKİP/rank line, is not sent to that viewer at all.</p>
+         *
+         * <p>The merge is dropped when the joined text would pass {@link #MAX_NAME_LENGTH}, because the
+         * 1.8 client rejects a longer custom name: the kept lines are then sent as they are, which costs
+         * a second cube but never a broken nametag.</p>
+         */
+        @NotNull
+        private MultiLinePlayerData.Layout collapse(@NotNull MultiLinePlayerData.Layout layout) {
+            String[] lines = layout.lines;
+            int kept = Math.min(CLOSE_LINES, lines.length);
+            int first = lines.length - kept;
+            StringBuilder merged = new StringBuilder();
+            for (int line = first; line < lines.length; line++) {
+                if (merged.length() > 0) merged.append(' ');
+                merged.append(lines[line]);
+            }
+            double lowest = layout.heights[layout.heights.length - 1];
+            if (merged.length() > MAX_NAME_LENGTH) {
+                double[] heights = Arrays.copyOfRange(layout.heights, first, layout.heights.length);
+                heights[heights.length - 1] = lowest;
+                return new MultiLinePlayerData.Layout(Arrays.copyOfRange(lines, first, lines.length),
+                        heights, layout.lowerWhenSneaking);
+            }
+            return new MultiLinePlayerData.Layout(new String[] {merged.toString()},
+                    new double[] {lowest}, layout.lowerWhenSneaking);
+        }
+
+        /** Returns whether the viewer is close enough to the owner to click or hit them. */
+        private boolean isClose(@NotNull TabPlayer owner) {
+            EntityPlayer ownerHandle = handle(owner);
+            double dx = ownerHandle.locX - x;
+            double dy = ownerHandle.locY - y;
+            double dz = ownerHandle.locZ - z;
+            return dx * dx + dy * dy + dz * dz <= CLOSE_RANGE * CLOSE_RANGE;
+        }
+
+        /**
+         * Rebuilds the lines of any view whose viewer just crossed {@link #CLOSE_RANGE}.
+         *
+         * <p>Only the distance is checked here; {@link #sync(View)} does the work and only when the
+         * close state actually flipped, so walking around does not respawn anything.</p>
+         */
+        private void syncRange() {
+            for (View view : views.values()) {
+                if (view.entityCount == 0) continue;
+                TabPlayer owner = owners.get(view.entityId);
+                if (owner == null) continue;
+                if (isClose(owner) != view.close) sync(view);
+            }
         }
 
         private void spawnLines(@NotNull View view, @NotNull TabPlayer owner, @NotNull MultiLinePlayerData.Layout layout) {
@@ -720,6 +804,7 @@ public class NMSMultiLineRenderer implements MultiLineRenderer {
                         x = flying.a();
                         y = flying.b();
                         z = flying.c();
+                        post(this::syncRange);
                     }
                 } else if (held != null) {
                     held.add(packet);
