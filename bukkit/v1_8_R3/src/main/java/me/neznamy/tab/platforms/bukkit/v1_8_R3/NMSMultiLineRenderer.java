@@ -24,21 +24,26 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
- * Multi-line nametags for 1.8.8, a native port of MultiLineAPI's mount renderer.
+ * Multi-line nametags for 1.8.8.
  * <p>
- * Lines are invisible marker armor stands chained on top of the player with invisible spacer entities between them:
- * {@code player <- spacers <- stand(lowest line) <- spacers <- stand <- ...}. 1.8 allows one passenger per vehicle and
- * positions a rider at {@code vehicle y + vehicle height * 0.75 + rider y offset}: 1.35 above the player, 0 per marker
- * armor stand (label renders 0.5 above it) and a fixed step per spacer type, including negative step of a slime with
- * negative size. Configured heights are approximated by the best combination of spacers (usually within 1 cm).
- * The client moves the whole chain with the player, so movement costs no packets.
+ * Every line is a free standing invisible marker armor stand placed above the player, and the owner's own movement
+ * packets are mirrored onto them: a relative move is re-sent for each line, a teleport re-places each line at its
+ * own height. The client interpolates a stand's relative move exactly like the player's, so the lines travel with
+ * the head rather than chasing it.
  * <p>
- * Lowering lines on sneak (like vanilla nametag) resizes two base spacers with metadata instead of respawning:
- * slime size 1 to 0 (-0.3825) and baby ocelot to adult (+0.2625), -0.12 in total.
+ * Lines used to ride the player through a chain of invisible spacer entities, which cost no movement packets at all
+ * because the client carried them. That is gone on purpose: the step a rider gains is {@code vehicle height * 0.75},
+ * so a spacer only lifts the next line if it has a real height, and in 1.8 a height means a hitbox. Silverfish,
+ * slimes and ocelots are {@code EntityLiving}, whose {@code isInteractable} is true, so the client's ray hit them
+ * and players could not place blocks around another player's head. Marker armor stands are the exception the client
+ * never targets, but a marker has zero size and therefore lifts nothing. There is no entity that is both invisible
+ * and untargetable and still lifts, so the chain had to go.
  * <p>
- * Marker armor stands cannot be targeted by the client, ocelots can. Attacks on them are held until the next movement
- * packet (1.8 client sends attack before that tick's rotation) and forwarded to the player only if the look ray hits
- * the player, so hitboxes are not extended.
+ * Lowering lines on sneak (like vanilla nametag) re-places them 0.12 lower.
+ * <p>
+ * Marker armor stands cannot be targeted by the client, so nothing here extends a player's hitbox. Attacks that do
+ * arrive for a fake entity are held until the next movement packet (1.8 client sends attack before that tick's
+ * rotation) and forwarded to the player only if the look ray hits the player.
  * <p>
  * Everything is driven by packets sent to the viewer. Per-viewer state lives in a channel handler and is only
  * touched by that channel's event loop.
@@ -53,14 +58,9 @@ public class NMSMultiLineRenderer implements MultiLineRenderer {
     /** Entity ids above this value are fake entities of this renderer, server ids never get this high */
     private static final int ID_FLOOR = 2_000_000_000;
 
-    private static final double PLAYER_MOUNT_OFFSET = 1.35;
     private static final double LABEL_OFFSET = 0.5;
-
-    /** Maximum amount of spacers used for fine-tuning a single height */
-    private static final int MAX_FINE_SPACERS = 5;
-
-    /** Height change of the sneak adjusters (slime 1 to 0 and baby ocelot to adult) */
-    private static final double SNEAK_ADJUSTERS_HEIGHT = 0.3825 + 0.2625;
+    /** How far lines drop while the owner sneaks, matching the vanilla nametag */
+    private static final double SNEAK_DROP = 0.12;
 
     /** ponytail: fixed tolerance for server/client position difference of the target, lag compensation if hits get lost */
     private static final double HIT_TOLERANCE = 0.1;
@@ -88,6 +88,15 @@ public class NMSMultiLineRenderer implements MultiLineRenderer {
     private static final Field LIVING_Z = ReflectionUtils.getField(PacketPlayOutSpawnEntityLiving.class, "e");
     private static final Field LIVING_WATCHER = ReflectionUtils.getField(PacketPlayOutSpawnEntityLiving.class, "l");
     private static final Field USE_ENTITY_ID = ReflectionUtils.getField(PacketPlayInUseEntity.class, "a");
+    /** Relative move: entity id and the three fixed point deltas, see PacketPlayOutEntity */
+    private static final Field MOVE_ID = ReflectionUtils.getField(PacketPlayOutEntity.class, "a");
+    private static final Field MOVE_DX = ReflectionUtils.getField(PacketPlayOutEntity.class, "b");
+    private static final Field MOVE_DY = ReflectionUtils.getField(PacketPlayOutEntity.class, "c");
+    private static final Field MOVE_DZ = ReflectionUtils.getField(PacketPlayOutEntity.class, "d");
+    private static final Field TELEPORT_ID = ReflectionUtils.getField(PacketPlayOutEntityTeleport.class, "a");
+    private static final Field TELEPORT_X = ReflectionUtils.getField(PacketPlayOutEntityTeleport.class, "b");
+    private static final Field TELEPORT_Y = ReflectionUtils.getField(PacketPlayOutEntityTeleport.class, "c");
+    private static final Field TELEPORT_Z = ReflectionUtils.getField(PacketPlayOutEntityTeleport.class, "d");
 
     /**
      * Static so ids of a new renderer after reload never collide with lines still being destroyed by the old one.
@@ -95,8 +104,6 @@ public class NMSMultiLineRenderer implements MultiLineRenderer {
      */
     private static final AtomicInteger nextIdBase = new AtomicInteger(Integer.MAX_VALUE);
 
-    /** Spacer combinations by height in millimeters */
-    private static final Map<Long, Spacer[]> recipes = new ConcurrentHashMap<>();
 
     /** Players by their entity id */
     private final Map<Integer, TabPlayer> owners = new ConcurrentHashMap<>();
@@ -253,74 +260,6 @@ public class NMSMultiLineRenderer implements MultiLineRenderer {
         int base = Integer.MAX_VALUE - ((Integer.MAX_VALUE - entityId) / ID_BLOCK) * ID_BLOCK;
         return ownersByIdBase.get(base);
     }
-
-    /**
-     * Invisible entity used to lift riders by a fixed height.
-     */
-    private enum Spacer {
-
-        /** Baby ocelot, 0.35 tall */
-        OCELOT(98, 0.2625),
-
-        /** Silverfish, 0.2 y offset + 0.3 tall */
-        SILVERFISH(60, 0.425),
-
-        /** Slime of size 1 */
-        SLIME(55, 0.3825),
-
-        /** Slime of size -1, negative height pulls riders down */
-        SLIME_DOWN(55, -0.3825);
-
-        private final int type;
-        private final double height;
-
-        Spacer(int type, double height) {
-            this.type = type;
-            this.height = height;
-        }
-    }
-
-    /**
-     * Returns combination of spacers lifting riders by given height as closely as possible.
-     *
-     * @param   height
-     *          Height in blocks, may be negative
-     * @return  Spacers to use
-     */
-    @NotNull
-    private static Spacer[] recipe(double height) {
-        return recipes.computeIfAbsent(Math.round(height * 1000), key -> {
-            // Cover large heights with silverfish, then find the best small combination for the rest
-            int coarse = (int) Math.max(0, Math.floor((height - 1) / Spacer.SILVERFISH.height));
-            double rest = height - coarse * Spacer.SILVERFISH.height;
-            int[] best = null;
-            double bestError = Double.MAX_VALUE;
-            // ponytail: brute force over ~250 combinations, result is cached per height
-            for (int o = 0; o <= MAX_FINE_SPACERS; o++) {
-                for (int s = 0; o + s <= MAX_FINE_SPACERS; s++) {
-                    for (int up = 0; o + s + up <= MAX_FINE_SPACERS; up++) {
-                        for (int down = 0; o + s + up + down <= MAX_FINE_SPACERS; down++) {
-                            if (up > 0 && down > 0) continue; // Cancel each other out
-                            double error = Math.abs(o * Spacer.OCELOT.height + s * Spacer.SILVERFISH.height
-                                    + up * Spacer.SLIME.height + down * Spacer.SLIME_DOWN.height - rest);
-                            int count = o + s + up + down;
-                            if (best == null || error < bestError - 1e-9 || (Math.abs(error - bestError) < 1e-9 && count < best[0] + best[1] + best[2] + best[3])) {
-                                best = new int[]{o, s + coarse, up, down};
-                                bestError = error;
-                            }
-                        }
-                    }
-                }
-            }
-            List<Spacer> spacers = new ArrayList<>();
-            Spacer[] types = Spacer.values();
-            for (int i = 0; i < types.length; i++) {
-                for (int j = 0; j < best[i]; j++) spacers.add(types[i]);
-            }
-            return spacers.toArray(new Spacer[0]);
-        });
-    }
-
     /**
      * State of a player seen by the viewer.
      */
@@ -344,9 +283,8 @@ public class NMSMultiLineRenderer implements MultiLineRenderer {
         private int[] lineIds;
         private String[] texts;
 
-        /** Sneak adjuster ids, 0 if not used */
-        private int adjusterSlime;
-        private int adjusterOcelot;
+        /** Height of each line's stand above the owner's feet, same order as {@link #lineIds} */
+        private double[] lineOffsets;
 
         private View(int entityId) {
             this.entityId = entityId;
@@ -460,10 +398,37 @@ public class NMSMultiLineRenderer implements MultiLineRenderer {
                     onStatus(packet);
                 } else if (packet instanceof PacketPlayOutAttachEntity) {
                     onAttach(packet);
+                } else if (packet instanceof PacketPlayOutEntity) {
+                    onOwnerMove((PacketPlayOutEntity) packet);
+                } else if (packet instanceof PacketPlayOutEntityTeleport) {
+                    onOwnerTeleport(packet);
                 }
             } catch (Throwable t) {
                 TAB.getInstance().getErrorManager().printError("Failed to process packet for multi-line nametags", t);
             }
+        }
+
+        /**
+         * Mirrors the owner's own movement onto its lines.
+         *
+         * <p>The lines are not passengers any more, so nothing moves them by itself. Re-sending the
+         * owner's relative move keeps them in step: the client interpolates a stand's relative move
+         * exactly like the player's, so the lines travel with the head instead of chasing it. A
+         * rotation-only packet carries no movement and is ignored; the lines never turn.</p>
+         */
+        @SneakyThrows
+        private void onOwnerMove(@NotNull PacketPlayOutEntity packet) {
+            if (packet instanceof PacketPlayOutEntity.PacketPlayOutEntityLook) return;
+            View view = views.get(MOVE_ID.getInt(packet));
+            if (view == null || view.entityCount == 0) return;
+            mirrorMove(view, MOVE_DX.getByte(packet), MOVE_DY.getByte(packet), MOVE_DZ.getByte(packet));
+        }
+
+        @SneakyThrows
+        private void onOwnerTeleport(@NotNull Object packet) {
+            View view = views.get(TELEPORT_ID.getInt(packet));
+            if (view == null || view.entityCount == 0) return;
+            mirrorTeleport(view, TELEPORT_X.getInt(packet), TELEPORT_Y.getInt(packet), TELEPORT_Z.getInt(packet));
         }
 
         private void onSpawn(int entityId, byte flags, boolean fromPacket) {
@@ -600,13 +565,12 @@ public class NMSMultiLineRenderer implements MultiLineRenderer {
                     watcher.a(0, standFlags(sneaking));
                     context.write(new PacketPlayOutEntityMetadata(id, watcher, true));
                 }
-                if (view.adjusterSlime != 0) {
-                    DataWatcher slime = new DataWatcher(null);
-                    slime.a(16, (byte) (sneaking ? 0 : 1));
-                    context.write(new PacketPlayOutEntityMetadata(view.adjusterSlime, slime, true));
-                    DataWatcher ocelot = new DataWatcher(null);
-                    ocelot.a(12, (byte) (sneaking ? 0 : -1));
-                    context.write(new PacketPlayOutEntityMetadata(view.adjusterOcelot, ocelot, true));
+                if (layout.lowerWhenSneaking) {
+                    // Lines are placed by us now, so sneaking moves them instead of resizing spacers
+                    view.lineOffsets = offsets(layout, sneaking);
+                    EntityPlayer ownerHandle = handle(owner);
+                    mirrorTeleport(view, MathHelper.floor(ownerHandle.locX * 32),
+                            MathHelper.floor(ownerHandle.locY * 32), MathHelper.floor(ownerHandle.locZ * 32));
                 }
             }
         }
@@ -626,65 +590,71 @@ public class NMSMultiLineRenderer implements MultiLineRenderer {
             MultiLinePlayerData data = owner.multiLineData;
             EntityPlayer ownerHandle = handle(owner);
             double lx = ownerHandle.locX;
+            double ly = ownerHandle.locY;
             double lz = ownerHandle.locZ;
-            double[] ly = {ownerHandle.locY + PLAYER_MOUNT_OFFSET};
-            int[] index = {0};
-            int[] vehicle = {view.entityId};
             boolean sneaking = (view.flags & FLAG_SNEAKING) != 0;
             String[] lines = layout.lines;
-            double[] heights = layout.heights;
-
-            // Base below the lowest line
-            double base = heights[heights.length - 1] - PLAYER_MOUNT_OFFSET - LABEL_OFFSET;
-            view.adjusterSlime = 0;
-            view.adjusterOcelot = 0;
-            if (layout.lowerWhenSneaking) {
-                base -= SNEAK_ADJUSTERS_HEIGHT;
-                view.adjusterSlime = spawnSpacer(data.idBase, index, vehicle, ly, lx, lz, 55, sneaking ? 0 : 1, false, Spacer.SLIME.height);
-                view.adjusterOcelot = spawnSpacer(data.idBase, index, vehicle, ly, lx, lz, 98, 0, !sneaking, Spacer.OCELOT.height);
-            }
-            spawnSpacers(recipe(base), data.idBase, index, vehicle, ly, lx, lz);
+            double[] offsets = offsets(layout, sneaking);
 
             int[] lineIds = new int[lines.length];
-            for (int line = lines.length - 1; line >= 0; line--) {
-                int id = data.idBase - index[0]++;
-                spawn(id, vehicle[0], TYPE_ARMOR_STAND, lx, ly[0], lz, standWatcher(lines[line], sneaking));
-                vehicle[0] = id;
+            for (int line = 0; line < lines.length; line++) {
+                int id = data.idBase - line;
+                spawn(id, TYPE_ARMOR_STAND, lx, ly + offsets[line], lz, standWatcher(lines[line], sneaking));
                 lineIds[line] = id;
-                if (line > 0) spawnSpacers(recipe(heights[line - 1]), data.idBase, index, vehicle, ly, lx, lz);
             }
-            view.entityCount = index[0];
+            view.entityCount = lines.length;
             view.idBase = data.idBase;
             view.layout = layout;
             view.sneaking = sneaking;
             view.lineIds = lineIds;
+            view.lineOffsets = offsets;
             view.texts = lines.clone();
         }
 
-        private void spawnSpacers(@NotNull Spacer[] spacers, int idBase, int[] index, int[] vehicle, double[] y, double x, double z) {
-            for (Spacer spacer : spacers) {
-                int size = spacer == Spacer.SLIME ? 1 : spacer == Spacer.SLIME_DOWN ? -1 : 0;
-                spawnSpacer(idBase, index, vehicle, y, x, z, spacer.type, size, spacer == Spacer.OCELOT, spacer.height);
+        /**
+         * Height of every line's stand above the owner's feet.
+         *
+         * <p>{@code heights} mixes two meanings, kept from the mount chain: the last element is the
+         * absolute height of the bottom line's label, every earlier element is the gap to the line
+         * above it. The stand itself sits {@link #LABEL_OFFSET} below its own label.</p>
+         */
+        private double[] offsets(@NotNull MultiLinePlayerData.Layout layout, boolean sneaking) {
+            double[] heights = layout.heights;
+            double[] offsets = new double[heights.length];
+            double running = heights[heights.length - 1];
+            offsets[heights.length - 1] = running - LABEL_OFFSET;
+            for (int line = heights.length - 2; line >= 0; line--) {
+                running += heights[line];
+                offsets[line] = running - LABEL_OFFSET;
+            }
+            if (layout.lowerWhenSneaking && sneaking) {
+                for (int line = 0; line < offsets.length; line++) {
+                    offsets[line] -= SNEAK_DROP;
+                }
+            }
+            return offsets;
+        }
+
+        /** Moves every line by the same relative delta the owner just moved by. */
+        @SneakyThrows
+        private void mirrorMove(@NotNull View view, byte dx, byte dy, byte dz) {
+            if (view.lineIds == null) return;
+            for (int id : view.lineIds) {
+                context.write(new PacketPlayOutEntity.PacketPlayOutRelEntityMove(id, dx, dy, dz, false));
             }
         }
 
-        private int spawnSpacer(int idBase, int[] index, int[] vehicle, double[] y, double x, double z, int type, int slimeSize,
-                                boolean baby, double height) {
-            int id = idBase - index[0]++;
-            DataWatcher watcher = new DataWatcher(null);
-            watcher.a(0, FLAG_INVISIBLE);
-            watcher.a(4, (byte) 1); // Silent
-            watcher.a(15, (byte) 1); // No AI
-            if (type == 98) watcher.a(12, (byte) (baby ? -1 : 0)); // Age
-            if (type == 55) watcher.a(16, (byte) slimeSize); // Slime size
-            spawn(id, vehicle[0], type, x, y[0], z, watcher);
-            vehicle[0] = id;
-            y[0] += height;
-            return id;
+        /** Places every line at an absolute position, used when the owner teleports or sneaks. */
+        private void mirrorTeleport(@NotNull View view, int x, int y, int z) {
+            if (view.lineIds == null || view.lineOffsets == null) return;
+            for (int line = 0; line < view.lineIds.length; line++) {
+                context.write(new PacketPlayOutEntityTeleport(view.lineIds[line], x,
+                        y + MathHelper.floor(view.lineOffsets[line] * 32), z, (byte) 0, (byte) 0, false));
+            }
         }
 
         @SneakyThrows
-        private void spawn(int id, int vehicle, int type, double x, double y, double z, @NotNull DataWatcher watcher) {
+        private void spawn(int id, int type, double x, double y, double z, @NotNull DataWatcher watcher) {
             PacketPlayOutSpawnEntityLiving spawn = new PacketPlayOutSpawnEntityLiving();
             LIVING_ID.setInt(spawn, id);
             LIVING_TYPE.setInt(spawn, type);
@@ -693,11 +663,6 @@ public class NMSMultiLineRenderer implements MultiLineRenderer {
             LIVING_Z.setInt(spawn, MathHelper.floor(z * 32));
             LIVING_WATCHER.set(spawn, watcher);
             context.write(spawn);
-            PacketPlayOutAttachEntity attach = new PacketPlayOutAttachEntity();
-            ATTACH_LEASH.setInt(attach, 0);
-            ATTACH_PASSENGER.setInt(attach, id);
-            ATTACH_VEHICLE.setInt(attach, vehicle);
-            context.write(attach);
         }
 
         @NotNull
