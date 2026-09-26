@@ -357,7 +357,8 @@ public class MultiLineNameTags extends RefreshableFeature implements JoinListene
             heights[i] = spacings.get(i);
         }
         if (heights.length > 0) heights[heights.length - 1] = firstLineHeight;
-        return new MultiLinePlayerData.Layout(texts.toArray(new String[0]), heights, configuration.isLowerWhenSneaking());
+        return new MultiLinePlayerData.Layout(texts.toArray(new String[0]), heights,
+                configuration.isLowerWhenSneaking(), configuration.isCollapseOnCloseRange());
     }
 
     /**

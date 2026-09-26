@@ -130,6 +130,14 @@ public class MultiLinePlayerData {
         /** Whether lines should move down when player sneaks */
         public final boolean lowerWhenSneaking;
 
+        /** Whether viewers close to the owner get the reduced line layout */
+        public final boolean collapseOnCloseRange;
+
+        /** Compatibility constructor for tests and callers that use the default close-range behavior. */
+        public Layout(@NotNull String[] lines, @NotNull double[] heights, boolean lowerWhenSneaking) {
+            this(lines, heights, lowerWhenSneaking, true);
+        }
+
         /**
          * Returns {@code true} if entities of both layouts are positioned the same, so only texts may differ.
          *
@@ -138,7 +146,8 @@ public class MultiLinePlayerData {
          * @return  {@code true} if structure is the same, {@code false} if not
          */
         public boolean hasSameStructure(@NotNull Layout other) {
-            return lines.length == other.lines.length && lowerWhenSneaking == other.lowerWhenSneaking && Arrays.equals(heights, other.heights);
+            return lines.length == other.lines.length && lowerWhenSneaking == other.lowerWhenSneaking
+                    && collapseOnCloseRange == other.collapseOnCloseRange && Arrays.equals(heights, other.heights);
         }
 
         @Override

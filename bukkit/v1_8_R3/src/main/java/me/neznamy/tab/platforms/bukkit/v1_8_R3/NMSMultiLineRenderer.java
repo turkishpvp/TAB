@@ -609,14 +609,14 @@ public class NMSMultiLineRenderer implements MultiLineRenderer {
             MultiLinePlayerData.Layout layout = owner.multiLineData.snapshot.forViewer(viewer.getUniqueId());
             if (layout == null) return null;
             view.close = isClose(owner);
-            return view.close ? collapse(layout) : layout;
+            return view.close && layout.collapseOnCloseRange ? collapse(layout) : layout;
         }
 
         /**
          * Returns the layout a viewer standing next to the owner gets: one line instead of the full stack.
          *
          * <p>Every line costs a 0.2 block cube on the crosshair (see {@link #CLOSE_RANGE}), so at melee
-         * range the decoration above the head has to go. What is kept are the lowest {@link #CLOSE_LINES}
+         * range the decoration above the head can be reduced when enabled in config. What is kept are the lowest {@link #CLOSE_LINES}
          * lines, which on this network carry the name and the health/ping line, merged into a single stand
          * so only one cube is left and it sits where the vanilla nametag would be. Everything above it,
          * the league tag and the RAKİP/rank line, is not sent to that viewer at all.</p>

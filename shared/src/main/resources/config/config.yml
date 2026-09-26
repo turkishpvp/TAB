@@ -110,6 +110,8 @@ multiline-nametags:
   #   - text: '&7%animation:mytag%'
   # Move lines down while sneaking like vanilla nametag. Lines always turn translucent and hidden behind walls when sneaking.
   lower-when-sneaking: true
+  # Collapse decorative lines only on servers where close-range hitbox reduction is wanted.
+  collapse-on-close-range: true
   disable-condition: '%world%=disabledworld'
 
 # https://github.com/NEZNAMY/TAB/wiki/Feature-guide:-Spectator-fix
@@ -263,6 +265,12 @@ placeholder-refresh-intervals:
   "%player_health%": 200
   "%player_ping%": 1000
   "%vault_prefix%": 1000
+  "%phoenix_player_rank_color%": 50
+  "%phoenix_player_rank_prefix%": 50
+  "%phoenix_player_rank_suffix%": 50
+  "%rel_bolt_nametag_prefix%": 50
+  "%rel_bolt_nametag_suffix%": 50
+  "%player_colored_ping%": 200
   "%rel_factionsuuid_relation_color%": 1000
 
 # assigning groups by permission nodes instead of taking them from permission plugin
@@ -280,7 +288,7 @@ primary-group-finding-list:
 # Refresh interval (in milliseconds) of:
 # - Permission checks in conditions / sorting
 # - Group retrieving from permission plugin for sorting / per-group properties
-permission-refresh-interval: 1000
+permission-refresh-interval: 100
 
 # Unlocks extra console messages
 debug: false

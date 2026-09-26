@@ -49,6 +49,9 @@ public class MultiLineConfiguration {
 
     private final boolean lowerWhenSneaking;
 
+    /** Whether the 1.8 renderer should collapse lines for viewers within melee range */
+    private final boolean collapseOnCloseRange;
+
     @NotNull private final String disableCondition;
 
     /** Whether players should see their own lines (visible in third person view) */
@@ -94,7 +97,7 @@ public class MultiLineConfiguration {
     public static MultiLineConfiguration fromSection(@NotNull ConfigurationSection section) {
         section.checkForUnknownKey(Arrays.asList("enabled", "lines", "first-line-height", "line-spacing",
                 "custom-line-spacing", "line-conditions", "line-cases", "lower-when-sneaking", "disable-condition",
-                "show-to-self", "show-to-self-condition"));
+                "show-to-self", "show-to-self-condition", "collapse-on-close-range"));
         List<String> lines = new ArrayList<>();
         for (String line : section.getStringList("lines", Arrays.asList("abovename", NAMETAG_LINE, "belowname"))) {
             String name = line.toLowerCase(Locale.US);
@@ -145,7 +148,8 @@ public class MultiLineConfiguration {
             if (!line.equals(NAMETAG_LINE)) addValidProperty(line);
         }
         return new MultiLineConfiguration(section, lines, firstLineHeight, lineSpacing, customLineSpacing, lineConditions, lineCases,
-                section.getBoolean("lower-when-sneaking", true), section.getString("disable-condition", "%world%=disabledworld"),
+                section.getBoolean("lower-when-sneaking", true), section.getBoolean("collapse-on-close-range", true),
+                section.getString("disable-condition", "%world%=disabledworld"),
                 section.getBoolean("show-to-self", false), section.getString("show-to-self-condition", ""));
     }
 
