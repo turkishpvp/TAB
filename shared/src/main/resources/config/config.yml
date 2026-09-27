@@ -111,7 +111,7 @@ multiline-nametags:
   # Move lines down while sneaking like vanilla nametag. Lines always turn translucent and hidden behind walls when sneaking.
   lower-when-sneaking: true
   # Collapse decorative lines only on servers where close-range hitbox reduction is wanted.
-  collapse-on-close-range: true
+  collapse-on-close-range: false
   disable-condition: '%world%=disabledworld'
 
 # https://github.com/NEZNAMY/TAB/wiki/Feature-guide:-Spectator-fix

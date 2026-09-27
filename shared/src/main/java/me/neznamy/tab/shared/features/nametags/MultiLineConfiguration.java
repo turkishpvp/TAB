@@ -148,7 +148,7 @@ public class MultiLineConfiguration {
             if (!line.equals(NAMETAG_LINE)) addValidProperty(line);
         }
         return new MultiLineConfiguration(section, lines, firstLineHeight, lineSpacing, customLineSpacing, lineConditions, lineCases,
-                section.getBoolean("lower-when-sneaking", true), section.getBoolean("collapse-on-close-range", true),
+                section.getBoolean("lower-when-sneaking", true), section.getBoolean("collapse-on-close-range", false),
                 section.getString("disable-condition", "%world%=disabledworld"),
                 section.getBoolean("show-to-self", false), section.getString("show-to-self-condition", ""));
     }
