@@ -78,11 +78,12 @@ public class Condition {
 
         List<PlaceholderReference> placeholdersInConditions = new ArrayList<>();
         PlaceholderManagerImpl manager = TAB.getInstance().getPlaceholderManager();
+        if (manager == null) return; // Header/footer conversion runs before the placeholder manager is initialized.
         placeholdersInConditions.addAll(manager.detectPlaceholders(yes).stream().map(manager::getPlaceholderReference).collect(Collectors.toList()));
         placeholdersInConditions.addAll(manager.detectPlaceholders(no).stream().map(manager::getPlaceholderReference).collect(Collectors.toList()));
         for (ConditionalExpression expression : expressions) {
             if (expression instanceof Permission || expression instanceof NotPermission) {
-                int permissionRefresh = TAB.getInstance().getConfiguration().getConfig().getPermissionRefreshInterval();
+                int permissionRefresh = TAB.getInstance().getConfiguration().getConfig().getRefresh().getPermissionRefreshInterval();
                 if (refresh > permissionRefresh || refresh == -1) refresh = permissionRefresh;
             } else {
                 ComparatorExpression comparator = (ComparatorExpression) expression;

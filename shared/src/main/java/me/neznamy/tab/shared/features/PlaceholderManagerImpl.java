@@ -138,8 +138,10 @@ public class PlaceholderManagerImpl extends RefreshableFeature implements Placeh
     
     private void refreshFeatures(@NotNull Map<RefreshableFeature, Collection<TabPlayer>> forceUpdate, @NotNull Map<RefreshableFeature, Collection<TabPlayer>> update) {
         for (Entry<RefreshableFeature, Collection<TabPlayer>> entry : update.entrySet()) {
+            Collection<TabPlayer> forcedPlayers = forceUpdate.getOrDefault(entry.getKey(), Collections.emptySet());
             TimedCaughtTask task = new TimedCaughtTask(TAB.getInstance().getCpu(), () -> {
                 for (TabPlayer player : entry.getValue()) {
+                    if (!player.isOnline() || forcedPlayers.contains(player)) continue;
                     entry.getKey().refresh(player, false);
                 }
             }, entry.getKey().getFeatureName(), entry.getKey().getRefreshDisplayName());
@@ -152,6 +154,7 @@ public class PlaceholderManagerImpl extends RefreshableFeature implements Placeh
         for (Entry<RefreshableFeature, Collection<TabPlayer>> entry : forceUpdate.entrySet()) {
             TimedCaughtTask task = new TimedCaughtTask(TAB.getInstance().getCpu(), () -> {
                 for (TabPlayer player : entry.getValue()) {
+                    if (!player.isOnline()) continue;
                     entry.getKey().refresh(player, true);
                 }
             }, entry.getKey().getFeatureName(), entry.getKey().getRefreshDisplayName());
@@ -177,7 +180,6 @@ public class PlaceholderManagerImpl extends RefreshableFeature implements Placeh
                     TabPlayer target = targetResult.getKey();
                     if (!target.isOnline()) continue; // Player disconnected in the meantime while refreshing in another thread
                     if (placeholder.hasValueChanged(viewer, target, targetResult.getValue())) {
-                        placeholder.updateParents(target);
                         for (RefreshableFeature f : placeholder.getReference().getUsedByFeatures()) {
                             update.computeIfAbsent(f, c -> new HashSet<>()).add(target);
                         }
@@ -197,7 +199,6 @@ public class PlaceholderManagerImpl extends RefreshableFeature implements Placeh
                 TabPlayer player = playerResult.getKey();
                 if (!player.isOnline()) continue; // Player disconnected in the meantime while refreshing in another thread
                 if (placeholder.hasValueChanged(player, playerResult.getValue(), true)) {
-                    placeholder.updateParents(player);
                     for (RefreshableFeature f : placeholder.getReference().getUsedByFeatures()) {
                         update.computeIfAbsent(f, c -> new HashSet<>()).add(player);
                     }
@@ -219,9 +220,6 @@ public class PlaceholderManagerImpl extends RefreshableFeature implements Placeh
             ServerPlaceholderImpl placeholder = entry.getKey();
             if (placeholder.hasValueChanged(entry.getValue())) {
                 set.addAll(placeholder.getReference().getUsedByFeatures());
-                for (TabPlayer all : TAB.getInstance().getOnlinePlayers()) {
-                    placeholder.updateParents(all);
-                }
             }
         }
         return set;

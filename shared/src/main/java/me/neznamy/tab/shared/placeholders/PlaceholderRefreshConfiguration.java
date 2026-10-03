@@ -53,6 +53,14 @@ public class PlaceholderRefreshConfiguration {
     @NotNull
     public static PlaceholderRefreshConfiguration fromSection(@NotNull ConfigurationSection section, int permissionRefreshInterval) {
         int defaultInterval = section.getInt("default-refresh-interval", 500);
+        if (defaultInterval != -1 && (defaultInterval <= 0 || defaultInterval % Placeholder.MINIMUM_REFRESH_INTERVAL != 0)) {
+            section.startupWarn("Invalid default-refresh-interval (" + defaultInterval + "). Using 500ms.");
+            defaultInterval = 500;
+        }
+        if (permissionRefreshInterval != -1 && (permissionRefreshInterval <= 0 || permissionRefreshInterval % Placeholder.MINIMUM_REFRESH_INTERVAL != 0)) {
+            section.startupWarn("Invalid permission-refresh-interval (" + permissionRefreshInterval + "). Using 1000ms.");
+            permissionRefreshInterval = 1000;
+        }
         Map<String, Integer> refreshIntervals = new HashMap<>(Placeholder.REFRESH_INTERVALS);
         for (Object placeholder : section.getKeys()) {
             String identifier = placeholder.toString();

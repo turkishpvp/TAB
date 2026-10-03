@@ -14,14 +14,18 @@ import me.neznamy.tab.shared.platform.TabPlayer;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * General collection of variables and functions shared between all placeholder types
  */
 @Getter
 public abstract class TabPlaceholder implements Placeholder {
+
+    private static final ThreadLocal<Set<TabPlaceholder>> parsing = ThreadLocal.withInitial(HashSet::new);
+    private static final ThreadLocal<Set<TabPlaceholder>> updatingParents = ThreadLocal.withInitial(HashSet::new);
 
     /**
      * Internal constant used to detect if placeholder threw an error.
@@ -51,8 +55,8 @@ public abstract class TabPlaceholder implements Placeholder {
      *          or equal to -1 to disable automatic refreshing
      */
     protected TabPlaceholder(@NonNull String identifier, int refresh) {
-        if (refresh % TabConstants.Placeholder.MINIMUM_REFRESH_INTERVAL != 0 && refresh != -1)
-            throw new IllegalArgumentException("Refresh interval must be divisible by " + TabConstants.Placeholder.MINIMUM_REFRESH_INTERVAL);
+        if (refresh != -1 && (refresh <= 0 || refresh % TabConstants.Placeholder.MINIMUM_REFRESH_INTERVAL != 0))
+            throw new IllegalArgumentException("Refresh interval must be positive and divisible by " + TabConstants.Placeholder.MINIMUM_REFRESH_INTERVAL + ", or -1");
         if (!PlaceholderIdentifier.isValid(identifier))
             throw new IllegalArgumentException("Identifier must start and end with % or <> (attempted to use \"" + identifier + "\")");
         this.identifier = identifier;
@@ -107,6 +111,18 @@ public abstract class TabPlaceholder implements Placeholder {
      */
     @NotNull
     protected String setPlaceholders(@NonNull String value, @Nullable TabPlayer player) {
+        Set<TabPlaceholder> active = parsing.get();
+        if (!active.add(this)) return identifier; // A -> B -> A: leave the cyclic placeholder unresolved.
+        try {
+            return resolveNestedPlaceholders(value, player);
+        } finally {
+            active.remove(this);
+            if (active.isEmpty()) parsing.remove();
+        }
+    }
+
+    @NotNull
+    private String resolveNestedPlaceholders(@NotNull String value, @Nullable TabPlayer player) {
         String string = value;
         if (identifier.equals(string)) return string; // Placeholder returned itself (probably invalid)
 
@@ -132,9 +148,17 @@ public abstract class TabPlaceholder implements Placeholder {
     public void updateParents(@NonNull TabPlayer player) {
         if (reference == null) return;
         if (reference.getParents().isEmpty()) return;
-        for (PlaceholderReference pl : new ArrayList<>(reference.getParents())) {
-            pl.getHandle().updateFromNested(player);
-            pl.getHandle().updateParents(player);
+        Set<TabPlaceholder> active = updatingParents.get();
+        if (!active.add(this)) return;
+        try {
+            // Parents use a copy-on-write list; its iterator already provides a stable snapshot.
+            for (PlaceholderReference pl : reference.getParents()) {
+                TabPlaceholder parent = pl.getHandle();
+                if (!active.contains(parent)) parent.updateFromNested(player);
+            }
+        } finally {
+            active.remove(this);
+            if (active.isEmpty()) updatingParents.remove();
         }
     }
 

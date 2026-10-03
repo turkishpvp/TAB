@@ -155,7 +155,9 @@ public class PlayerPlaceholderImpl extends TabPlaceholder implements PlayerPlace
         String returned = request(player);
         if (returned == null || returned.equals(ERROR_VALUE)) returned = identifier;
         String evaluated = returned.equals(identifier) ? replacements.findReplacement(identifier) : evaluate(returned, player);
-        if (player.lastPlaceholderReturnedValues.putIfAbsent(this, returned) != null) return; // Another thread was faster
+        // Another initializer may have published its raw value but not its evaluated value yet.
+        // Both maps must be populated before this call returns to getLastValue().
+        player.lastPlaceholderReturnedValues.putIfAbsent(this, returned);
         player.lastPlaceholderEvaluatedValues.putIfAbsent(this, evaluated);
         player.expansionData.setPlaceholderValue(identifier, evaluated);
     }

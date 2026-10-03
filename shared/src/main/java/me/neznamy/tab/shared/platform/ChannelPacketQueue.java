@@ -1,12 +1,14 @@
 package me.neznamy.tab.shared.platform;
 
 import io.netty.channel.Channel;
+import io.netty.util.ReferenceCountUtil;
 import lombok.NonNull;
 import lombok.RequiredArgsConstructor;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.Queue;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.BinaryOperator;
 
@@ -37,16 +39,44 @@ public class ChannelPacketQueue {
      *          Packet to send
      */
     public void send(@NonNull Object packet) {
+        if (!channel.isActive()) {
+            ReferenceCountUtil.release(packet);
+            return;
+        }
         queue.add(packet);
+        schedule();
+    }
+
+    private void schedule() {
         if (scheduled.compareAndSet(false, true)) {
-            channel.eventLoop().execute(this::drain);
+            try {
+                channel.eventLoop().execute(this::drain);
+            } catch (RejectedExecutionException exception) {
+                scheduled.set(false);
+                discard();
+                throw exception;
+            }
         }
     }
 
     private void drain() {
-        scheduled.set(false);
+        try {
+            drainBatch();
+        } finally {
+            scheduled.set(false);
+            // A writer can enqueue after the last poll but before scheduled is cleared.
+            if (!queue.isEmpty()) schedule();
+        }
+    }
+
+    private void discard() {
+        Object packet;
+        while ((packet = queue.poll()) != null) ReferenceCountUtil.release(packet);
+    }
+
+    private void drainBatch() {
         if (!channel.isActive()) {
-            queue.clear();
+            discard();
             return;
         }
         Object pending = queue.poll();

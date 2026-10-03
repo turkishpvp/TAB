@@ -6,7 +6,8 @@ import org.jetbrains.annotations.NotNull;
 
 import java.util.List;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
-import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -19,7 +20,8 @@ public class ThreadExecutor {
     private static final int SHUTDOWN_TIMEOUT = 5000;
 
     private final String threadName;
-    private final ScheduledExecutorService executor;
+    private final ScheduledThreadPoolExecutor executor;
+    private volatile Thread worker;
 
     /**
      * Constructs new instance and starts new thread executor with give name.
@@ -29,7 +31,13 @@ public class ThreadExecutor {
      */
     public ThreadExecutor(@NotNull String threadName) {
         this.threadName = threadName;
-        ScheduledThreadPoolExecutor executor = new ScheduledThreadPoolExecutor(1, new ThreadFactoryBuilder().setNameFormat(threadName).build());
+        ThreadFactory factory = Executors.defaultThreadFactory();
+        ScheduledThreadPoolExecutor executor = new ScheduledThreadPoolExecutor(1, new ThreadFactoryBuilder()
+                .setNameFormat(threadName).setThreadFactory(task -> {
+                    Thread thread = factory.newThread(task);
+                    worker = thread;
+                    return thread;
+                }).build());
         // Do not wait for delayed tasks (announcements, retries) on shutdown, it blocks reload/stop for seconds
         executor.setExecuteExistingDelayedTasksAfterShutdownPolicy(false);
         executor.setRemoveOnCancelPolicy(true);
@@ -40,8 +48,12 @@ public class ThreadExecutor {
      * Shuts down the executor.
      */
     public void shutdown() {
-        long time = System.currentTimeMillis();
         executor.shutdown();
+        // Velocity may unload TAB on the processing thread itself. It cannot await its own termination.
+        if (Thread.currentThread() == worker) {
+            executor.getQueue().clear(); // Queued work must not run after TAB clears its state.
+            return;
+        }
         try {
             if (!executor.awaitTermination(SHUTDOWN_TIMEOUT, TimeUnit.MILLISECONDS)) {
                 List<Runnable> cancelledTasks = executor.shutdownNow();
@@ -53,8 +65,8 @@ public class ThreadExecutor {
                         "ms. This may cause issues.", null);
             }
         } catch (InterruptedException ignored) {
-            // Shutdown successful
-            TAB.getInstance().debug("Thread " + threadName + " shutdown in " + (System.currentTimeMillis() - time) + "ms");
+            executor.shutdownNow();
+            Thread.currentThread().interrupt();
         }
     }
 

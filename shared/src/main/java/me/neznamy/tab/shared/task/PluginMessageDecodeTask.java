@@ -41,10 +41,14 @@ public class PluginMessageDecodeTask implements Runnable {
 
     @Override
     public void run() {
+        if (bytes.length == 0) return;
+        int messageId = bytes[0] & 0xFF;
+        if (messageId >= registeredMessages.length) return; // Unknown bridge version/message type.
         ProxyTabPlayer player = (ProxyTabPlayer) TAB.getInstance().getPlayer(playerId);
         if (player == null) return;
         ByteArrayDataInput in = ByteStreams.newDataInput(bytes);
-        Supplier<IncomingMessage> supplier = registeredMessages[in.readByte()];
+        in.readByte();
+        Supplier<IncomingMessage> supplier = registeredMessages[messageId];
         IncomingMessage msg = supplier.get();
         msg.read(in);
         TAB.getInstance().getCpu().runMeasuredTask("Plugin message handling", CpuUsageCategory.PLUGIN_MESSAGE_PROCESS, new PluginMessageProcessTask(msg, player));

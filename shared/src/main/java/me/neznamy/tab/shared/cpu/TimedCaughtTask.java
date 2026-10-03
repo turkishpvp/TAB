@@ -24,9 +24,10 @@ public class TimedCaughtTask implements Runnable {
     @Override
     public void run() {
         try {
-            long time = System.nanoTime();
+            boolean trackUsage = cpu.isTrackUsage();
+            long time = trackUsage ? System.nanoTime() : 0;
             task.run();
-            cpu.addTime(feature, usageType, System.nanoTime() - time);
+            if (trackUsage) cpu.addTime(feature, usageType, System.nanoTime() - time);
         } catch (Exception | LinkageError | StackOverflowError e) {
             TAB.getInstance().getErrorManager().taskThrewError(e);
         }

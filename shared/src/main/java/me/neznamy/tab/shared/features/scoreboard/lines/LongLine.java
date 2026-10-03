@@ -63,13 +63,17 @@ public class LongLine implements ScoreboardLine {
                 holder.updateTeam(player, properties.textProperty.get(), "");
                 holder.setScore(player, holder.getForcedPlayerNameStart());
             } else {
-                player.getScoreboard().removeScore(ScoreboardManagerImpl.OBJECTIVE_NAME, properties.scoreName);
                 String[] values = splitText(
                         holder.getForcedPlayerNameStart(),
                         holder.getParent().getManager().getCache().get(properties.textProperty.get()).toLegacyText(),
                         player.getVersion().getNetworkId() >= ProtocolVersion.V1_8.getNetworkId() ? Limitations.SCOREBOARD_SCORE_LENGTH_1_8 : Limitations.SCOREBOARD_SCORE_LENGTH_1_7
                 );
-                updateTeam(player, values);
+                if (values[1].equals(properties.scoreName)) {
+                    holder.updateTeam(player, values[0], values[2]);
+                } else {
+                    player.getScoreboard().removeScore(ScoreboardManagerImpl.OBJECTIVE_NAME, properties.scoreName);
+                    updateTeam(player, values);
+                }
                 holder.setScore(player, values[1]);
                 properties.scoreName = values[1];
             }

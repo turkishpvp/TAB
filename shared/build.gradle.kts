@@ -47,6 +47,10 @@ sourceSets.main {
 }
 dependencies {
     testImplementation("org.junit.jupiter:junit-jupiter:5.10.2")
+    testImplementation("org.mockito:mockito-core:5.22.0")
+    testRuntimeOnly("net.kyori:adventure-api:4.25.0-SNAPSHOT")
+    testRuntimeOnly("net.luckperms:api:5.4")
+    testRuntimeOnly("com.google.guava:guava:31.1-jre")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
     testImplementation("io.netty:netty-all:4.1.90.Final")
 }

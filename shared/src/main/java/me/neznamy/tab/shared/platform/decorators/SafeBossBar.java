@@ -45,6 +45,7 @@ public abstract class SafeBossBar<T> implements BossBar {
     public synchronized void update(@NotNull UUID id, @NotNull TabComponent title) {
         BossBarInfo bar = bossBars.get(id);
         if (bar == null) return;
+        if (bar.getTitle() == title) return;
         bar.setTitle(title);
         if (frozen) return;
         updateTitle(bar);
@@ -54,6 +55,7 @@ public abstract class SafeBossBar<T> implements BossBar {
     public synchronized void update(@NotNull UUID id, float progress) {
         BossBarInfo bar = bossBars.get(id);
         if (bar == null) return;
+        if (Float.compare(bar.getProgress(), progress) == 0) return;
         bar.setProgress(progress);
         if (frozen) return;
         updateProgress(bar);
@@ -63,6 +65,7 @@ public abstract class SafeBossBar<T> implements BossBar {
     public synchronized void update(@NotNull UUID id, @NotNull BarStyle style) {
         BossBarInfo bar = bossBars.get(id);
         if (bar == null) return;
+        if (bar.getStyle() == style) return;
         bar.setStyle(style);
         if (frozen) return;
         updateStyle(bar);
@@ -72,6 +75,7 @@ public abstract class SafeBossBar<T> implements BossBar {
     public synchronized void update(@NotNull UUID id, @NotNull BarColor color) {
         BossBarInfo bar = bossBars.get(id);
         if (bar == null) return;
+        if (bar.getColor() == color) return;
         bar.setColor(color);
         if (frozen) return;
         updateColor(bar);
@@ -96,6 +100,7 @@ public abstract class SafeBossBar<T> implements BossBar {
      * Freezes the class, not letting any packets through.
      */
     public synchronized void freeze() {
+        if (frozen) return;
         frozen = true;
         preFreezeBossBars = new ArrayList<>(bossBars.values()); // Make a copy to avoid modifications
     }

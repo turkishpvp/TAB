@@ -10,6 +10,7 @@ import org.jetbrains.annotations.NotNull;
 
 import java.util.*;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * This class holds a reference to a placeholder.
@@ -33,7 +34,7 @@ public class PlaceholderReference {
 
     /** Current implementation of the placeholder by this identifier */
     @NotNull
-    private TabPlaceholder handle;
+    private volatile TabPlaceholder handle;
 
     /**
      * List of placeholders using this placeholder as a nested placeholder,
@@ -43,7 +44,7 @@ public class PlaceholderReference {
     private final List<PlaceholderReference> parents = new CopyOnWriteArrayList<>(); // Modified by multiple threads
 
     /** Set of features using this placeholder, used to call refresh on them */
-    private final Set<RefreshableFeature> usedByFeatures = Collections.synchronizedSet(new HashSet<>());
+    private final Set<RefreshableFeature> usedByFeatures = ConcurrentHashMap.newKeySet();
 
     /**
      * Returns refresh interval of the placeholder.
@@ -83,7 +84,7 @@ public class PlaceholderReference {
      * @param   parent
      *          parent placeholder using this placeholder in output
      */
-    public void addParent(@NonNull PlaceholderReference parent) {
+    public synchronized void addParent(@NonNull PlaceholderReference parent) {
         if (parent == this) return; // ???
         if (!parents.contains(parent)) {
             usedByFeatures.addAll(parent.usedByFeatures);

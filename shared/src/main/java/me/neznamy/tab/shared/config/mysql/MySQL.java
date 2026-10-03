@@ -60,16 +60,11 @@ public class MySQL {
 
     @NotNull
     public CachedRowSet getCRS(@NonNull String query, @NonNull Object... vars) throws SQLException {
-        PreparedStatement ps = prepareStatement(query, vars);
-        ResultSet rs = ps.executeQuery();
-        CachedRowSet crs;
-        try {
-            crs = RowSetProvider.newFactory().createCachedRowSet();
+        try (PreparedStatement ps = prepareStatement(query, vars);
+             ResultSet rs = ps.executeQuery()) {
+            CachedRowSet crs = RowSetProvider.newFactory().createCachedRowSet();
             crs.populate(rs);
             return crs;
-        } finally {
-            rs.close();
-            ps.close();
         }
     }
 }

@@ -15,17 +15,10 @@ import me.neznamy.tab.shared.platform.TabPlayer;
 import me.neznamy.tab.shared.platform.decorators.SafeBossBar;
 import org.jetbrains.annotations.NotNull;
 
-import java.util.Map;
-import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
-
 /**
  * The core for Velocity forwarding events into all enabled features
  */
 public class VelocityEventListener implements EventListener<Player> {
-
-    /** Map for tracking online players */
-    private final Map<Player, UUID> players = new ConcurrentHashMap<>();
 
     /**
      * Listens to player disconnecting from the server.
@@ -35,11 +28,16 @@ public class VelocityEventListener implements EventListener<Player> {
      */
     @Subscribe
     public void onQuit(@NotNull DisconnectEvent e) {
-        if (TAB.getInstance().isPluginDisabled()) return;
-        // Check if the player was actually connected to the server in the first place to avoid processing
-        // disconnect of an existing player who is still there (because players are mapped by UUID in TAB)
-        UUID id = players.remove(e.getPlayer());
-        if (id != null) quit(id);
+        TAB tab = TAB.getInstance();
+        if (tab.isPluginDisabled()) return;
+        tab.getCPUManager().runTask(() -> {
+            TabPlayer current = tab.getPlayer(e.getPlayer().getUniqueId());
+            // Compare connections, not UUIDs: an old or rejected login must not remove a newer session.
+            // This also covers players loaded during /tab reload without an onConnect event.
+            if (current != null && current.getPlayer() == e.getPlayer()) {
+                tab.getFeatureManager().onQuit(current);
+            }
+        });
     }
 
     /**
@@ -72,9 +70,13 @@ public class VelocityEventListener implements EventListener<Player> {
         TAB tab = TAB.getInstance();
         if (tab.isPluginDisabled()) return;
         tab.getCPUManager().runTask(() -> {
+            if (!e.getPlayer().isActive()) return; // Disconnected while this event waited in the task queue.
             TabPlayer player = tab.getPlayer(e.getPlayer().getUniqueId());
+            if (player != null && player.getPlayer() != e.getPlayer()) {
+                tab.getFeatureManager().onQuit(player);
+                player = null;
+            }
             if (player == null) {
-                players.put(e.getPlayer(), e.getPlayer().getUniqueId());
                 tab.getFeatureManager().onJoin(createPlayer(e.getPlayer()));
             } else {
                 if (!(player.getScoreboard() instanceof VelocityScoreboard)) player.getScoreboard().resend();
