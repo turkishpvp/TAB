@@ -41,9 +41,18 @@ import java.util.concurrent.atomic.AtomicInteger;
  * <p>
  * Lowering lines on sneak (like vanilla nametag) re-places them 0.12 lower.
  * <p>
- * Marker armor stands cannot be targeted by the client, so nothing here extends a player's hitbox. Attacks that do
- * arrive for a fake entity are held until the next movement packet (1.8 client sends attack before that tick's
- * rotation) and forwarded to the player only if the look ray hits the player.
+ * Marker armor stands cannot be targeted by the client ({@code canBeCollidedWith} is false for markers), so nothing
+ * here extends a player's hitbox. Attacks that do arrive for a fake entity are held until the next movement packet
+ * (1.8 client sends attack before that tick's rotation) and forwarded to the player only if the look ray hits the
+ * player.
+ * <p>
+ * Block placement is the one thing a marker still blocks. Before sending a placement the 1.8 client checks
+ * {@code World.canBlockBePlaced}, which refuses any cell holding an entity with {@code preventEntitySpawning}, and
+ * every {@code EntityLivingBase} (armor stands included, marker or not) has it. A marker's box is a single point, so
+ * the cell that point sits in (usually the one above the owner's head) cannot be built in. The client then sends a
+ * plain "use item" packet instead. No entity type both shows a name and avoids this without rendering something, so
+ * those packets are held like attacks, and if the look ray hits a block face whose target cell holds one of our line
+ * points, they are replaced with the placement (and arm swing) the client would have sent without the lines.
  * <p>
  * Everything is driven by packets sent to the viewer. Per-viewer state lives in a channel handler and is only
  * touched by that channel's event loop.
@@ -66,14 +75,24 @@ public class NMSMultiLineRenderer implements MultiLineRenderer {
     private static final double HIT_TOLERANCE = 0.1;
     private static final double REACH = 6;
 
+    /** Block reach of the 1.8 client ({@code PlayerControllerMP.getBlockReachDistance}) */
+    private static final double BLOCK_REACH = 4.5;
+    private static final double BLOCK_REACH_CREATIVE = 5;
+    /** Border the 1.8 client adds around entity boxes when ray tracing ({@code Entity.getCollisionBorderSize}) */
+    private static final double ENTITY_BORDER = 0.1;
+    /** Face value of a "use item" placement packet, sent when the client did not place against a block */
+    private static final int FACE_USE_ITEM = 255;
     /**
-     * Distance in blocks within which a viewer can click or hit the owner, so no line may sit in the way.
-     *
-     * <p>Marker armor stands do not solve this. A marker's own box is zero, but the client grows every
-     * entity's box by {@code Entity.ao()} = 0.1 on each side when it ray traces, and armor stands do not
-     * override that: each line is a 0.2 block cube on the crosshair. Stacked lines therefore build a
-     * column above the head which swallows block placement and hits coming from above, and the more
-     * lines a player has the worse it gets.</p>
+     * How far a line point may be outside the target cell and still count as blocking it. The client sees
+     * the owner a few ticks behind the server, so the point it tested is not exactly where the server has it.
+     */
+    private static final double LINE_POINT_TOLERANCE = 0.5;
+    /** Only hold "use item" packets while lines exist this close to the viewer */
+    private static final double ASSIST_RANGE = 8;
+
+    /**
+     * Distance in blocks within which a viewer counts as close to the owner, used by
+     * {@code collapse-on-close-range} to send fewer lines (fewer points blocking block placement).
      */
     private static final double CLOSE_RANGE = 6;
     /** Lines kept at close range, counted from the bottom: the nametag and the line under it (name, health, ping) */
@@ -103,6 +122,12 @@ public class NMSMultiLineRenderer implements MultiLineRenderer {
     private static final Field LIVING_Z = ReflectionUtils.getField(PacketPlayOutSpawnEntityLiving.class, "e");
     private static final Field LIVING_WATCHER = ReflectionUtils.getField(PacketPlayOutSpawnEntityLiving.class, "l");
     private static final Field USE_ENTITY_ID = ReflectionUtils.getField(PacketPlayInUseEntity.class, "a");
+    private static final Field PLACE_POSITION = ReflectionUtils.getField(PacketPlayInBlockPlace.class, "b");
+    private static final Field PLACE_FACE = ReflectionUtils.getField(PacketPlayInBlockPlace.class, "c");
+    private static final Field PLACE_ITEM = ReflectionUtils.getField(PacketPlayInBlockPlace.class, "d");
+    private static final Field PLACE_CURSOR_X = ReflectionUtils.getField(PacketPlayInBlockPlace.class, "e");
+    private static final Field PLACE_CURSOR_Y = ReflectionUtils.getField(PacketPlayInBlockPlace.class, "f");
+    private static final Field PLACE_CURSOR_Z = ReflectionUtils.getField(PacketPlayInBlockPlace.class, "g");
     /** Relative move: entity id and the three fixed point deltas, see PacketPlayOutEntity */
     private static final Field MOVE_ID = ReflectionUtils.getField(PacketPlayOutEntity.class, "a");
     private static final Field MOVE_DX = ReflectionUtils.getField(PacketPlayOutEntity.class, "b");
@@ -332,7 +357,10 @@ public class NMSMultiLineRenderer implements MultiLineRenderer {
         private float yaw;
         private float pitch;
 
-        /** Incoming packets held until next movement packet, starting with an attack on a fake entity */
+        /**
+         * Incoming packets held until next movement packet, starting with an attack on a fake entity or
+         * a "use item" packet that may be a placement our lines blocked
+         */
         @Nullable private List<Object> held;
 
         /** Sneak state of the viewer, tracked for lines the viewer sees of themselves */
@@ -818,6 +846,11 @@ public class NMSMultiLineRenderer implements MultiLineRenderer {
                     held = new ArrayList<>();
                     held.add(packet);
                     return;
+                } else if (packet instanceof PacketPlayInBlockPlace && isBlockUsedInAir((PacketPlayInBlockPlace) packet) && hasLinesNearby()) {
+                    // Placed with this tick's rotation like attacks, wait for it
+                    held = new ArrayList<>();
+                    held.add(packet);
+                    return;
                 }
             } catch (Throwable t) {
                 TAB.getInstance().getErrorManager().printError("Failed to process incoming packet for multi-line nametags", t);
@@ -829,15 +862,155 @@ public class NMSMultiLineRenderer implements MultiLineRenderer {
             List<Object> packets = held;
             if (packets == null) return;
             held = null;
-            boolean redirected = false;
-            try {
-                redirected = redirect(packets.get(0));
-            } catch (Throwable t) {
-                TAB.getInstance().getErrorManager().printError("Failed to redirect attack on multi-line nametag", t);
+            for (Object packet : resolveHeld(packets.get(0))) {
+                ctx.fireChannelRead(packet);
             }
-            for (int i = redirected ? 0 : 1; i < packets.size(); i++) {
+            for (int i = 1; i < packets.size(); i++) {
                 ctx.fireChannelRead(packets.get(i));
             }
+        }
+
+        /**
+         * Returns what to forward in place of the packet that started holding.
+         *
+         * @param   packet
+         *          Attack on a fake entity or a "use item" packet
+         * @return  Packets to forward instead, empty to drop it
+         */
+        @NotNull
+        private List<Object> resolveHeld(@NotNull Object packet) {
+            if (packet instanceof PacketPlayInUseEntity) {
+                try {
+                    return redirect(packet) ? Collections.singletonList(packet) : Collections.emptyList();
+                } catch (Throwable t) {
+                    TAB.getInstance().getErrorManager().printError("Failed to redirect attack on multi-line nametag", t);
+                    return Collections.emptyList();
+                }
+            }
+            try {
+                return assistPlacement((PacketPlayInBlockPlace) packet);
+            } catch (Throwable t) {
+                TAB.getInstance().getErrorManager().printError("Failed to restore block placement blocked by multi-line nametag", t);
+                return Collections.singletonList(packet);
+            }
+        }
+
+        /** Returns whether this is a "use item" packet sent while holding a block. */
+        private boolean isBlockUsedInAir(@NotNull PacketPlayInBlockPlace packet) {
+            if (packet.getFace() != FACE_USE_ITEM) return false;
+            ItemStack item = packet.getItemStack();
+            return item != null && item.getItem() instanceof ItemBlock;
+        }
+
+        /** Returns whether any line points this viewer sees are close enough to be built against. */
+        private boolean hasLinesNearby() {
+            for (View view : views.values()) {
+                if (view.entityCount == 0) continue;
+                TabPlayer owner = owners.get(view.entityId);
+                if (owner == null) continue;
+                EntityPlayer ownerHandle = handle(owner);
+                double dx = ownerHandle.locX - x;
+                double dy = ownerHandle.locY - y;
+                double dz = ownerHandle.locZ - z;
+                if (dx * dx + dy * dy + dz * dz <= ASSIST_RANGE * ASSIST_RANGE) return true;
+            }
+            return false;
+        }
+
+        /**
+         * Turns a "use item" packet back into the block placement the client refused because one of our
+         * line points sat in the target cell.
+         *
+         * <p>The look ray is traced the way the 1.8 client does it (eye at last sent position, this tick's
+         * rotation, block reach 4.5 or 5 in creative). Nothing changes when the ray hits no block, when a
+         * player this viewer sees is in front of the block (the client would have clicked that player), or
+         * when no line point is in the target cell. The server still runs every normal placement check on
+         * the result, so this can only allow what a client without our lines would have sent.</p>
+         *
+         * @param   packet
+         *          "Use item" packet holding a block
+         * @return  Packets to forward instead
+         */
+        @SneakyThrows
+        @NotNull
+        private List<Object> assistPlacement(@NotNull PacketPlayInBlockPlace packet) {
+            List<Object> unchanged = Collections.singletonList(packet);
+            if (viewerHandle.dead) return unchanged;
+            Vec3D eye = eye();
+            Vec3D end = lookEnd(eye, viewerHandle.abilities.canInstantlyBuild ? BLOCK_REACH_CREATIVE : BLOCK_REACH);
+            World world = viewerHandle.world;
+            MovingObjectPosition hit = world.rayTrace(eye, end, false, false, true);
+            if (hit == null || hit.type != MovingObjectPosition.EnumMovingObjectType.BLOCK || hit.a() == null
+                    || hit.direction == null || hit.pos == null) return unchanged;
+            if (isPlayerInTheWay(eye, hit.pos)) return unchanged;
+            BlockPosition clicked = hit.a();
+            BlockPosition target = world.getType(clicked).getBlock().getMaterial().isReplaceable() ? clicked : clicked.shift(hit.direction);
+            if (!hasLinePointIn(target)) return unchanged;
+
+            PacketPlayInBlockPlace place = new PacketPlayInBlockPlace();
+            PLACE_POSITION.set(place, clicked);
+            PLACE_FACE.setInt(place, hit.direction.a());
+            PLACE_ITEM.set(place, packet.getItemStack());
+            PLACE_CURSOR_X.setFloat(place, cursor(hit.pos.a - clicked.getX()));
+            PLACE_CURSOR_Y.setFloat(place, cursor(hit.pos.b - clicked.getY()));
+            PLACE_CURSOR_Z.setFloat(place, cursor(hit.pos.c - clicked.getZ()));
+            place.timestamp = packet.timestamp;
+            // A vanilla client swings right after a successful placement
+            return Arrays.asList(place, new PacketPlayInArmAnimation());
+        }
+
+        /** Cursor position as it arrives over the network, in sixteenths of a block. */
+        private float cursor(double offset) {
+            return (int) (offset * 16) / 16F;
+        }
+
+        /** Returns whether a player this viewer sees blocks the segment, so the client would have targeted them. */
+        private boolean isPlayerInTheWay(@NotNull Vec3D eye, @NotNull Vec3D blockHit) {
+            for (Integer entityId : views.keySet()) {
+                if (entityId == viewerHandle.getId()) continue;
+                TabPlayer owner = owners.get(entityId);
+                if (owner == null) continue;
+                AxisAlignedBB box = handle(owner).getBoundingBox().grow(ENTITY_BORDER, ENTITY_BORDER, ENTITY_BORDER);
+                if (box.a(eye) || box.a(eye, blockHit) != null) return true;
+            }
+            return false;
+        }
+
+        /** Returns whether a line point this viewer was sent lies in (or within tolerance of) the block cell. */
+        private boolean hasLinePointIn(@NotNull BlockPosition cell) {
+            double minX = cell.getX() - LINE_POINT_TOLERANCE;
+            double minY = cell.getY() - LINE_POINT_TOLERANCE;
+            double minZ = cell.getZ() - LINE_POINT_TOLERANCE;
+            double maxX = cell.getX() + 1 + LINE_POINT_TOLERANCE;
+            double maxY = cell.getY() + 1 + LINE_POINT_TOLERANCE;
+            double maxZ = cell.getZ() + 1 + LINE_POINT_TOLERANCE;
+            for (View view : views.values()) {
+                if (view.entityCount == 0 || view.lineOffsets == null) continue;
+                TabPlayer owner = owners.get(view.entityId);
+                if (owner == null) continue;
+                EntityPlayer ownerHandle = handle(owner);
+                if (ownerHandle.locX <= minX || ownerHandle.locX >= maxX || ownerHandle.locZ <= minZ || ownerHandle.locZ >= maxZ) continue;
+                for (double offset : view.lineOffsets) {
+                    double pointY = ownerHandle.locY + offset;
+                    if (pointY > minY && pointY < maxY) return true;
+                }
+            }
+            return false;
+        }
+
+        /** Eye position the 1.8 client ray traces from: last position it sent, its own sneak state. */
+        @NotNull
+        private Vec3D eye() {
+            return new Vec3D(x, y + (sneaking ? 1.54 : 1.62), z);
+        }
+
+        /** End of the look ray from the eye, using the rotation the client sent this tick. */
+        @NotNull
+        private Vec3D lookEnd(@NotNull Vec3D eye, double reach) {
+            double yawRadians = -yaw * 0.017453292F - Math.PI;
+            double pitchRadians = -pitch * 0.017453292F;
+            double horizontal = -Math.cos(pitchRadians);
+            return eye.add(Math.sin(yawRadians) * horizontal * reach, Math.sin(pitchRadians) * reach, Math.cos(yawRadians) * horizontal * reach);
         }
 
         /**
@@ -853,11 +1026,8 @@ public class NMSMultiLineRenderer implements MultiLineRenderer {
             if (owner == null) return false;
             EntityPlayer ownerHandle = handle(owner);
             if (ownerHandle.getId() == viewerHandle.getId()) return false; // Spigot kicks for interacting with self
-            Vec3D eye = new Vec3D(x, y + (viewerHandle.isSneaking() ? 1.54 : 1.62), z);
-            double yawRadians = -yaw * 0.017453292F - Math.PI;
-            double pitchRadians = -pitch * 0.017453292F;
-            double horizontal = -Math.cos(pitchRadians);
-            Vec3D end = eye.add(Math.sin(yawRadians) * horizontal * REACH, Math.sin(pitchRadians) * REACH, Math.cos(yawRadians) * horizontal * REACH);
+            Vec3D eye = eye();
+            Vec3D end = lookEnd(eye, REACH);
             AxisAlignedBB box = ownerHandle.getBoundingBox().grow(0.1 + HIT_TOLERANCE, 0.1 + HIT_TOLERANCE, 0.1 + HIT_TOLERANCE);
             if (!box.a(eye) && box.a(eye, end) == null) return false;
             USE_ENTITY_ID.setInt(packet, ownerHandle.getId());
