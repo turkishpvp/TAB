@@ -41,6 +41,22 @@ import java.util.concurrent.atomic.AtomicInteger;
  * <p>
  * Lowering lines on sneak (like vanilla nametag) re-places them 0.12 lower.
  * <p>
+ * The lines only stay on the head if they are placed where the viewer's client has the owner, not where the server
+ * has it. The client places a player at the spawn packet position plus every relative move after it, and the server
+ * may be a tick or more ahead of that. Each view therefore tracks the owner's position exactly as sent to this viewer
+ * (spawn, relative moves, teleports) and every line spawn or re-place uses that, never the live server position.
+ * <p>
+ * Riding the player (one stand as passenger) would need no movement packets, but 1.8 allows a single passenger and a
+ * rider sits {@code vehicle height * 0.75} above the vehicle, so only one line could ride and the rest would have no
+ * vehicle with a height to stack on (see above). While the owner rides something else the client moves the owner with
+ * that vehicle and no owner movement reaches us, so the lines are removed until the owner dismounts.
+ * <p>
+ * Carbon respawns a player in the same dimension (death, world change, profile refresh) without the fake dimension
+ * switch CraftBukkit uses, and a 1.8 client only rebuilds its world (dropping every entity) when the dimension of a
+ * respawn differs from its current one. So the views, and the lines the client still shows, are only forgotten on a
+ * respawn into another dimension; on a same-dimension respawn the client keeps the players and their lines, and the
+ * server keeps tracking them.
+ * <p>
  * Marker armor stands cannot be targeted by the client ({@code canBeCollidedWith} is false for markers), so nothing
  * here extends a player's hitbox. Attacks that do arrive for a fake entity are held until the next movement packet
  * (1.8 client sends attack before that tick's rotation) and forwarded to the player only if the look ray hits the
@@ -52,7 +68,13 @@ import java.util.concurrent.atomic.AtomicInteger;
  * the cell that point sits in (usually the one above the owner's head) cannot be built in. The client then sends a
  * plain "use item" packet instead. No entity type both shows a name and avoids this without rendering something, so
  * those packets are held like attacks, and if the look ray hits a block face whose target cell holds one of our line
- * points, they are replaced with the placement (and arm swing) the client would have sent without the lines.
+ * points, they are replaced with the placement the client would have sent without the lines, and the client is told
+ * to swing its arm (it did not, having refused the placement).
+ * <p>
+ * Holding the "use item" packet costs no noticeable time: the 1.8 client handles clicks in its tick before updating the
+ * player, so the movement packet carrying that tick's rotation is sent right behind it. What the placer still notices
+ * is that its client did not place the block itself; the block appears once the server's block update arrives, a
+ * round trip later.
  * <p>
  * Everything is driven by packets sent to the viewer. Per-viewer state lives in a channel handler and is only
  * touched by that channel's event loop.
@@ -83,8 +105,8 @@ public class NMSMultiLineRenderer implements MultiLineRenderer {
     /** Face value of a "use item" placement packet, sent when the client did not place against a block */
     private static final int FACE_USE_ITEM = 255;
     /**
-     * How far a line point may be outside the target cell and still count as blocking it. The client sees
-     * the owner a few ticks behind the server, so the point it tested is not exactly where the server has it.
+     * How far a line point may be outside the target cell and still count as blocking it. The client
+     * interpolates a line towards its last sent position over a few ticks, so the point it tested lags that.
      */
     private static final double LINE_POINT_TOLERANCE = 0.5;
     /** Only hold "use item" packets while lines exist this close to the viewer */
@@ -107,6 +129,11 @@ public class NMSMultiLineRenderer implements MultiLineRenderer {
 
     private static final Field SPAWN_ID = ReflectionUtils.getField(PacketPlayOutNamedEntitySpawn.class, "a");
     private static final Field SPAWN_WATCHER = ReflectionUtils.getField(PacketPlayOutNamedEntitySpawn.class, "i");
+    private static final Field SPAWN_X = ReflectionUtils.getField(PacketPlayOutNamedEntitySpawn.class, "c");
+    private static final Field SPAWN_Y = ReflectionUtils.getField(PacketPlayOutNamedEntitySpawn.class, "d");
+    private static final Field SPAWN_Z = ReflectionUtils.getField(PacketPlayOutNamedEntitySpawn.class, "e");
+    private static final Field LOGIN_DIMENSION = ReflectionUtils.getField(PacketPlayOutLogin.class, "d");
+    private static final Field RESPAWN_DIMENSION = ReflectionUtils.getField(PacketPlayOutRespawn.class, "a");
     private static final Field DESTROY_IDS = ReflectionUtils.getField(PacketPlayOutEntityDestroy.class, "a");
     private static final Field METADATA_ID = ReflectionUtils.getField(PacketPlayOutEntityMetadata.class, "a");
     private static final Field METADATA_LIST = ReflectionUtils.getField(PacketPlayOutEntityMetadata.class, "b");
@@ -222,7 +249,9 @@ public class NMSMultiLineRenderer implements MultiLineRenderer {
         handler.post(() -> {
             if (show) {
                 // Metadata of own entity is sent to the player as well, flags stay up to date after the spawn
-                handler.onSpawn(entityId, handler.sneaking ? FLAG_SNEAKING : 0, false);
+                EntityPlayer handle = handle(owner);
+                handler.onSpawn(entityId, handler.sneaking ? FLAG_SNEAKING : 0, false,
+                        encode(handle.locX), encode(handle.locY), encode(handle.locZ));
             } else {
                 View view = handler.views.remove(entityId);
                 if (view != null) handler.destroyLines(view);
@@ -246,9 +275,13 @@ public class NMSMultiLineRenderer implements MultiLineRenderer {
                 EntityTrackerEntry entry = ((WorldServer) handle.world).tracker.trackedEntities.get(handle.getId());
                 if (entry == null) continue;
                 byte flags = handle.getDataWatcher().getByte(0);
+                // Last position broadcast by the tracker, what viewers have once any teleport corrected the spawn
+                int x = entry.xLoc;
+                int y = entry.yLoc;
+                int z = entry.zLoc;
                 for (EntityPlayer viewer : entry.trackedPlayers) {
                     Handler handler = handler(viewer.playerConnection.networkManager.channel);
-                    if (handler != null) handler.post(() -> handler.onSpawn(handle.getId(), flags, false));
+                    if (handler != null) handler.post(() -> handler.onSpawn(handle.getId(), flags, false, x, y, z));
                 }
             }
         });
@@ -295,6 +328,11 @@ public class NMSMultiLineRenderer implements MultiLineRenderer {
         return (Handler) channel.pipeline().get(HANDLER_NAME);
     }
 
+    /** Position in the fixed point format of entity packets, the way the server encodes a player spawn. */
+    private static int encode(double coordinate) {
+        return (int) Math.round(coordinate * 32);
+    }
+
     @Nullable
     private TabPlayer ownerOfFakeEntity(int entityId) {
         int base = Integer.MAX_VALUE - ((Integer.MAX_VALUE - entityId) / ID_BLOCK) * ID_BLOCK;
@@ -314,6 +352,17 @@ public class NMSMultiLineRenderer implements MultiLineRenderer {
 
         /** Entity id of a passenger not managed by this renderer, 0 if none */
         private int foreignPassenger;
+
+        /** Whether the owner rides another entity, the client then moves it with that vehicle */
+        private boolean riding;
+
+        /**
+         * Owner position as this viewer's client has it: fixed point (x32) values of the spawn packet with every
+         * relative move added, replaced by teleports. Same arithmetic as the client's {@code serverPosX/Y/Z}.
+         */
+        private int posX;
+        private int posY;
+        private int posZ;
 
         /** Currently spawned fake entities, all ids from idBase downwards */
         private int entityCount;
@@ -366,6 +415,12 @@ public class NMSMultiLineRenderer implements MultiLineRenderer {
         /** Sneak state of the viewer, tracked for lines the viewer sees of themselves */
         private boolean sneaking;
 
+        /**
+         * Dimension the client is in, from the last login or respawn packet. The handler is added after login,
+         * so it starts from the viewer's world, which is what the login packet carried.
+         */
+        private int dimension;
+
         private Handler(@NotNull Channel channel, @NotNull UUID viewerId, @NotNull EntityPlayer viewerHandle) {
             this.channel = channel;
             this.viewerId = viewerId;
@@ -375,6 +430,7 @@ public class NMSMultiLineRenderer implements MultiLineRenderer {
             z = viewerHandle.locZ;
             yaw = viewerHandle.yaw;
             pitch = viewerHandle.pitch;
+            dimension = viewerHandle.world.worldProvider.getDimension();
         }
 
         @Override
@@ -427,12 +483,9 @@ public class NMSMultiLineRenderer implements MultiLineRenderer {
                 if (packet instanceof PacketPlayOutEntityDestroy) {
                     out = onDestroy((PacketPlayOutEntityDestroy) packet);
                 } else if (packet instanceof PacketPlayOutRespawn) {
-                    // Client removed all entities
-                    for (View view : views.values()) {
-                        Set<Handler> viewers = viewersOf.get(view.entityId);
-                        if (viewers != null) viewers.remove(this);
-                    }
-                    views.clear();
+                    onRespawn(RESPAWN_DIMENSION.getInt(packet));
+                } else if (packet instanceof PacketPlayOutLogin) {
+                    dimension = LOGIN_DIMENSION.getInt(packet);
                 }
             } catch (Throwable t) {
                 TAB.getInstance().getErrorManager().printError("Failed to process packet for multi-line nametags", t);
@@ -440,7 +493,8 @@ public class NMSMultiLineRenderer implements MultiLineRenderer {
             super.write(ctx, out, promise);
             try {
                 if (packet instanceof PacketPlayOutNamedEntitySpawn) {
-                    onSpawn(SPAWN_ID.getInt(packet), ((DataWatcher) SPAWN_WATCHER.get(packet)).getByte(0), true);
+                    onSpawn(SPAWN_ID.getInt(packet), ((DataWatcher) SPAWN_WATCHER.get(packet)).getByte(0), true,
+                            SPAWN_X.getInt(packet), SPAWN_Y.getInt(packet), SPAWN_Z.getInt(packet));
                 } else if (packet instanceof PacketPlayOutEntityMetadata) {
                     onMetadata(packet);
                 } else if (packet instanceof PacketPlayOutEntityStatus) {
@@ -469,27 +523,71 @@ public class NMSMultiLineRenderer implements MultiLineRenderer {
         private void onOwnerMove(@NotNull PacketPlayOutEntity packet) {
             if (packet instanceof PacketPlayOutEntity.PacketPlayOutEntityLook) return;
             View view = views.get(MOVE_ID.getInt(packet));
-            if (view == null || view.entityCount == 0) return;
-            mirrorMove(view, MOVE_DX.getByte(packet), MOVE_DY.getByte(packet), MOVE_DZ.getByte(packet));
+            if (view == null) return;
+            byte dx = MOVE_DX.getByte(packet);
+            byte dy = MOVE_DY.getByte(packet);
+            byte dz = MOVE_DZ.getByte(packet);
+            // Tracked even without lines, they may be spawned later and must start where the client has the owner
+            view.posX += dx;
+            view.posY += dy;
+            view.posZ += dz;
+            if (view.entityCount == 0) return;
+            mirrorMove(view, dx, dy, dz);
             syncRange();
         }
 
         @SneakyThrows
         private void onOwnerTeleport(@NotNull Object packet) {
             View view = views.get(TELEPORT_ID.getInt(packet));
-            if (view == null || view.entityCount == 0) return;
-            mirrorTeleport(view, TELEPORT_X.getInt(packet), TELEPORT_Y.getInt(packet), TELEPORT_Z.getInt(packet));
+            if (view == null) return;
+            view.posX = TELEPORT_X.getInt(packet);
+            view.posY = TELEPORT_Y.getInt(packet);
+            view.posZ = TELEPORT_Z.getInt(packet);
+            if (view.entityCount == 0) return;
+            mirrorTeleport(view);
             syncRange();
         }
 
-        private void onSpawn(int entityId, byte flags, boolean fromPacket) {
+        /**
+         * Handles a respawn sent to the viewer.
+         *
+         * <p>The 1.8 client drops its world, and every entity with it, only when the respawn's dimension differs
+         * from the one it is in. Carbon respawns in the same dimension (and so does a profile refresh), so then
+         * the players this viewer sees stay on the client together with their lines, and the server keeps
+         * tracking them: the views must stay too. Forgetting them used to leave those lines frozen in the air,
+         * because no destroy for them was ever merged in afterwards.</p>
+         *
+         * @param   newDimension
+         *          Dimension of the respawn packet
+         */
+        private void onRespawn(int newDimension) {
+            boolean worldRebuilt = newDimension != dimension;
+            dimension = newDimension;
+            if (!worldRebuilt) return;
+            for (View view : views.values()) {
+                Set<Handler> viewers = viewersOf.get(view.entityId);
+                if (viewers != null) viewers.remove(this);
+            }
+            views.clear();
+        }
+
+        private void onSpawn(int entityId, byte flags, boolean fromPacket, int x, int y, int z) {
             View view = views.get(entityId);
+            boolean placed = true;
             if (view == null) {
                 view = new View(entityId);
                 views.put(entityId, view);
                 viewersOf.computeIfAbsent(entityId, k -> ConcurrentHashMap.newKeySet()).add(this);
             } else if (fromPacket) {
                 destroyLines(view); // Client replaced the entity, old lines lost their vehicle
+            } else {
+                placed = false; // Already tracked from packets, keep that exact position
+            }
+            if (placed) {
+                view.riding = false;
+                view.posX = x;
+                view.posY = y;
+                view.posZ = z;
             }
             view.flags = flags;
             view.dead = false;
@@ -556,6 +654,15 @@ public class NMSMultiLineRenderer implements MultiLineRenderer {
             if (ATTACH_LEASH.getInt(packet) != 0) return;
             int passenger = ATTACH_PASSENGER.getInt(packet);
             int vehicle = ATTACH_VEHICLE.getInt(packet);
+            View rider = views.get(passenger);
+            if (rider != null) {
+                // Owner mounts or leaves a vehicle; while riding, its movement arrives as the vehicle's
+                boolean riding = vehicle != -1;
+                if (rider.riding != riding) {
+                    rider.riding = riding;
+                    sync(rider);
+                }
+            }
             if (vehicle != -1) {
                 View view = views.get(vehicle);
                 if (view == null || passenger > ID_FLOOR) return;
@@ -619,9 +726,7 @@ public class NMSMultiLineRenderer implements MultiLineRenderer {
                 if (layout.lowerWhenSneaking) {
                     // Lines are placed by us now, so sneaking moves them instead of resizing spacers
                     view.lineOffsets = offsets(layout, sneaking);
-                    EntityPlayer ownerHandle = handle(owner);
-                    mirrorTeleport(view, MathHelper.floor(ownerHandle.locX * 32),
-                            MathHelper.floor(ownerHandle.locY * 32), MathHelper.floor(ownerHandle.locZ * 32));
+                    mirrorTeleport(view);
                 }
             }
         }
@@ -629,7 +734,7 @@ public class NMSMultiLineRenderer implements MultiLineRenderer {
         @Nullable
         private MultiLinePlayerData.Layout desiredLayout(@NotNull View view, @Nullable TabPlayer owner) {
             if (owner == null) return null;
-            if (view.dead || view.foreignPassenger != 0 || (view.flags & FLAG_INVISIBLE) != 0) return null;
+            if (view.dead || view.riding || view.foreignPassenger != 0 || (view.flags & FLAG_INVISIBLE) != 0) return null;
             TabPlayer viewer = TAB.getInstance().getPlayer(viewerId);
             if (viewer == null) return null; // Not loaded yet, refreshed on join
             if (owner.multiLineData.spectator || viewer.multiLineData.spectator) return null; // Spectators see invisible entities
@@ -700,10 +805,6 @@ public class NMSMultiLineRenderer implements MultiLineRenderer {
 
         private void spawnLines(@NotNull View view, @NotNull TabPlayer owner, @NotNull MultiLinePlayerData.Layout layout) {
             MultiLinePlayerData data = owner.multiLineData;
-            EntityPlayer ownerHandle = handle(owner);
-            double lx = ownerHandle.locX;
-            double ly = ownerHandle.locY;
-            double lz = ownerHandle.locZ;
             boolean sneaking = (view.flags & FLAG_SNEAKING) != 0;
             String[] lines = layout.lines;
             double[] offsets = offsets(layout, sneaking);
@@ -711,7 +812,8 @@ public class NMSMultiLineRenderer implements MultiLineRenderer {
             int[] lineIds = new int[lines.length];
             for (int line = 0; line < lines.length; line++) {
                 int id = data.idBase - line;
-                spawn(id, TYPE_ARMOR_STAND, lx, ly + offsets[line], lz, standWatcher(lines[line], sneaking));
+                spawn(id, TYPE_ARMOR_STAND, view.posX, view.posY + MathHelper.floor(offsets[line] * 32), view.posZ,
+                        standWatcher(lines[line], sneaking));
                 lineIds[line] = id;
             }
             view.entityCount = lines.length;
@@ -756,23 +858,24 @@ public class NMSMultiLineRenderer implements MultiLineRenderer {
             }
         }
 
-        /** Places every line at an absolute position, used when the owner teleports or sneaks. */
-        private void mirrorTeleport(@NotNull View view, int x, int y, int z) {
+        /** Places every line at its height above the owner's tracked position, used when the owner teleports or sneaks. */
+        private void mirrorTeleport(@NotNull View view) {
             if (view.lineIds == null || view.lineOffsets == null) return;
             for (int line = 0; line < view.lineIds.length; line++) {
-                context.write(new PacketPlayOutEntityTeleport(view.lineIds[line], x,
-                        y + MathHelper.floor(view.lineOffsets[line] * 32), z, (byte) 0, (byte) 0, false));
+                context.write(new PacketPlayOutEntityTeleport(view.lineIds[line], view.posX,
+                        view.posY + MathHelper.floor(view.lineOffsets[line] * 32), view.posZ, (byte) 0, (byte) 0, false));
             }
         }
 
+        /** Spawns a fake entity, position already in fixed point (x32) form. */
         @SneakyThrows
-        private void spawn(int id, int type, double x, double y, double z, @NotNull DataWatcher watcher) {
+        private void spawn(int id, int type, int x, int y, int z, @NotNull DataWatcher watcher) {
             PacketPlayOutSpawnEntityLiving spawn = new PacketPlayOutSpawnEntityLiving();
             LIVING_ID.setInt(spawn, id);
             LIVING_TYPE.setInt(spawn, type);
-            LIVING_X.setInt(spawn, MathHelper.floor(x * 32));
-            LIVING_Y.setInt(spawn, MathHelper.floor(y * 32));
-            LIVING_Z.setInt(spawn, MathHelper.floor(z * 32));
+            LIVING_X.setInt(spawn, x);
+            LIVING_Y.setInt(spawn, y);
+            LIVING_Z.setInt(spawn, z);
             LIVING_WATCHER.set(spawn, watcher);
             context.write(spawn);
         }
@@ -955,8 +1058,22 @@ public class NMSMultiLineRenderer implements MultiLineRenderer {
             PLACE_CURSOR_Y.setFloat(place, cursor(hit.pos.b - clicked.getY()));
             PLACE_CURSOR_Z.setFloat(place, cursor(hit.pos.c - clicked.getZ()));
             place.timestamp = packet.timestamp;
-            // A vanilla client swings right after a successful placement
-            return Arrays.asList(place, new PacketPlayInArmAnimation());
+            swingOwnArm();
+            return Collections.singletonList(place);
+        }
+
+        /**
+         * Plays the arm swing a vanilla client does right after a placement it sent itself.
+         *
+         * <p>The client refused this placement, so it did not swing. An animation packet with the viewer's own
+         * entity id makes it swing: the 1.8 client resolves its own id to the local player and calls
+         * {@code EntityPlayerSP.swingItem}, which also sends the arm animation packet to the server, exactly like a
+         * swing the player made. That echo is what other players see, so no swing is injected here, otherwise the
+         * server would process two (plugins counting clicks would count both).</p>
+         */
+        private void swingOwnArm() {
+            if (context == null) return;
+            context.writeAndFlush(new PacketPlayOutAnimation(viewerHandle, 0));
         }
 
         /** Cursor position as it arrives over the network, in sixteenths of a block. */
@@ -986,12 +1103,12 @@ public class NMSMultiLineRenderer implements MultiLineRenderer {
             double maxZ = cell.getZ() + 1 + LINE_POINT_TOLERANCE;
             for (View view : views.values()) {
                 if (view.entityCount == 0 || view.lineOffsets == null) continue;
-                TabPlayer owner = owners.get(view.entityId);
-                if (owner == null) continue;
-                EntityPlayer ownerHandle = handle(owner);
-                if (ownerHandle.locX <= minX || ownerHandle.locX >= maxX || ownerHandle.locZ <= minZ || ownerHandle.locZ >= maxZ) continue;
+                // Where this client has the lines, which is what its placement check tested
+                double lineX = view.posX / 32D;
+                double lineZ = view.posZ / 32D;
+                if (lineX <= minX || lineX >= maxX || lineZ <= minZ || lineZ >= maxZ) continue;
                 for (double offset : view.lineOffsets) {
-                    double pointY = ownerHandle.locY + offset;
+                    double pointY = view.posY / 32D + offset;
                     if (pointY > minY && pointY < maxY) return true;
                 }
             }
