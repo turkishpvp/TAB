@@ -142,6 +142,20 @@ public abstract class TrackedTabList<P extends TabPlayer> implements TabList {
         }
     }
 
+    /**
+     * Moves values remembered for an entry to a new UUID after the player's tablist UUID changed.
+     *
+     * @param   from
+     *          Previous UUID
+     * @param   to
+     *          New UUID
+     */
+    public void moveEntry(@NonNull UUID from, @NonNull UUID to) {
+        TabComponent displayName = forcedDisplayNames.remove(from);
+        if (displayName != null) forcedDisplayNames.put(to, displayName);
+        if (blockedSpectators.remove(from)) blockedSpectators.add(to);
+    }
+
     @Override
     public void setPlayerListHeaderFooter(@Nullable TabComponent header, @Nullable TabComponent footer) {
         this.header = header;

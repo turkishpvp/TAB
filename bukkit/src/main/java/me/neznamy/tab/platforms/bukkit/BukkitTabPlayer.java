@@ -13,6 +13,8 @@ import org.bukkit.entity.Player;
 import org.bukkit.metadata.MetadataValue;
 import org.bukkit.potion.PotionEffectType;
 import org.jetbrains.annotations.NotNull;
+
+import java.util.UUID;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -52,6 +54,12 @@ public class BukkitTabPlayer extends BackendTabPlayer {
      */
     public BukkitTabPlayer(@NotNull BukkitPlatform platform, @NotNull Player p) {
         super(platform, p, p.getUniqueId(), p.getName(), p.getWorld().getName(), platform.getServerVersionInfo().getServerVersion().getNetworkId());
+    }
+
+    @Override
+    @NotNull
+    public UUID getCurrentUniqueId() {
+        return getPlayer().getUniqueId();
     }
 
     @Override

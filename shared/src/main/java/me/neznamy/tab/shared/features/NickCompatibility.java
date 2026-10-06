@@ -35,6 +35,7 @@ public class NickCompatibility extends TabFeature implements EntryAddListener {
     public void onEntryAdd(TabPlayer packetReceiver, UUID id, String name) {
         // Fast path without the global lock, this runs on netty threads for every tablist add entry
         TabPlayer receiverEntry = TAB.getInstance().getPlayerByTabListUUID(id);
+        if (receiverEntry == null) receiverEntry = TAB.getInstance().retargetTablistId(id);
         if (proxy == null && (receiverEntry != packetReceiver || receiverEntry.getNickname().equals(name))) return;
         onEntryAdd0(packetReceiver, id, name);
     }

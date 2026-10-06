@@ -131,6 +131,10 @@ public class NMSPacketTabList extends TrackedTabList<BukkitTabPlayer> {
             IChatBaseComponent displayName = nmsData.d();
             int latency = nmsData.b();
             int gameMode = nmsData.c().getId();
+            if (action == EnumPlayerInfoAction.ADD_PLAYER) {
+                // Before the display name lookup: may move a disguised player to this UUID
+                TAB.getInstance().getFeatureManager().onEntryAdd(player, id, profile.getName());
+            }
             if (action == EnumPlayerInfoAction.UPDATE_DISPLAY_NAME || action == EnumPlayerInfoAction.ADD_PLAYER) {
                 TabComponent forcedDisplayName = getForcedDisplayNames().get(id);
                 if (forcedDisplayName != null && forcedDisplayName.convert() != displayName) {
@@ -149,9 +153,6 @@ public class NMSPacketTabList extends TrackedTabList<BukkitTabPlayer> {
                     latency = getForcedLatency();
                     rewriteEntry = rewritePacket = true;
                 }
-            }
-            if (action == EnumPlayerInfoAction.ADD_PLAYER) {
-                TAB.getInstance().getFeatureManager().onEntryAdd(player, id, profile.getName());
             }
             updatedList.add(rewriteEntry ? info.new PlayerInfoData(
                     profile,

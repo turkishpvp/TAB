@@ -60,8 +60,8 @@ public abstract class TabPlayer implements me.neznamy.tab.api.TabPlayer {
     /** Player's offline UUID based on their name */
     @Getter private final UUID offlineId;
 
-    /** Player's tablist UUID */
-    @Getter private final UUID tablistId;
+    /** Player's tablist UUID, changes when a disguise plugin swaps the player's UUID (Phoenix hide-uuid) */
+    @Getter private volatile UUID tablistId;
 
     /**
      * World the player is currently in, {@code "N/A"} if TAB is
@@ -238,6 +238,27 @@ public abstract class TabPlayer implements me.neznamy.tab.api.TabPlayer {
     @Override
     public boolean hasTemporaryGroup() {
         return temporaryGroup != null;
+    }
+
+    /**
+     * Returns the UUID the server currently uses for this player. Disguise plugins may swap it at runtime,
+     * after which the tablist entry is sent under the new UUID.
+     *
+     * @return  Player's current UUID
+     */
+    @NotNull
+    public UUID getCurrentUniqueId() {
+        return uniqueId;
+    }
+
+    /**
+     * Changes tablist UUID of this player. Only called from {@link TAB#retargetTablistId(UUID)}.
+     *
+     * @param   tablistId
+     *          New tablist UUID
+     */
+    public void setTablistId(@NotNull UUID tablistId) {
+        this.tablistId = tablistId;
     }
 
     @Override

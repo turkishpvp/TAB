@@ -26,6 +26,7 @@ import me.neznamy.tab.shared.features.nametags.NameTag;
 import me.neznamy.tab.shared.platform.Platform;
 import me.neznamy.tab.shared.platform.TabListEntryTracker;
 import me.neznamy.tab.shared.platform.TabPlayer;
+import me.neznamy.tab.shared.platform.decorators.TrackedTabList;
 import me.neznamy.tab.shared.proxy.ProxyPlatform;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -178,6 +179,36 @@ public class TAB extends TabAPI {
      */
     public @Nullable TabPlayer getPlayerByTabListUUID(UUID tabListId) {
         return playersByTabListId.get(tabListId);
+    }
+
+    /**
+     * Handles a tablist entry added under an UUID no player is registered with. If an online player's
+     * current UUID is now this one (a disguise plugin swapped it, e.g. Phoenix hide-uuid), the player is
+     * moved to it, so display name, latency and gamemode updates reach the entry the client has.
+     *
+     * @param   tabListId
+     *          UUID of the added entry
+     * @return  Player now registered with this UUID, or {@code null} if no player uses it
+     */
+    public synchronized @Nullable TabPlayer retargetTablistId(@NotNull UUID tabListId) {
+        TabPlayer registered = playersByTabListId.get(tabListId);
+        if (registered != null) return registered;
+        // ponytail: linear scan, only for unknown ids (NPCs, disguises); index current ids if NPC churn shows up in /tab cpu
+        for (TabPlayer player : onlinePlayers) {
+            if (!tabListId.equals(player.getCurrentUniqueId())) continue;
+            UUID previous = player.getTablistId();
+            playersByTabListId.remove(previous, player);
+            player.setTablistId(tabListId);
+            playersByTabListId.put(tabListId, player);
+            for (TabPlayer viewer : onlinePlayers) {
+                if (viewer.getTabList() instanceof TrackedTabList) {
+                    ((TrackedTabList<?>) viewer.getTabList()).moveEntry(previous, tabListId);
+                }
+            }
+            debug("Tablist UUID of " + player.getName() + " changed from " + previous + " to " + tabListId);
+            return player;
+        }
+        return null;
     }
 
     /**
