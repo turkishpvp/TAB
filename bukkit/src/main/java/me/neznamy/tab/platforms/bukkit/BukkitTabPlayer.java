@@ -6,6 +6,7 @@ import me.neznamy.tab.platforms.bukkit.hook.LibsDisguisesHook;
 import me.neznamy.tab.platforms.bukkit.platform.BukkitPlatform;
 import me.neznamy.tab.shared.backend.BackendTabPlayer;
 import me.neznamy.tab.shared.chat.component.TabComponent;
+import me.neznamy.tab.shared.features.disguise.DisguiseIdentity;
 import me.neznamy.tab.shared.platform.ChannelPacketQueue;
 import org.bukkit.Statistic;
 import org.bukkit.attribute.Attribute;
@@ -45,6 +46,15 @@ public class BukkitTabPlayer extends BackendTabPlayer {
     private ChannelPacketQueue packetQueue;
 
     /**
+     * Phoenix disguise currently shown instead of the real identity, {@code null} if not disguised.
+     * Kept up to date by {@link me.neznamy.tab.platforms.bukkit.features.PhoenixDisguiseTracker}.
+     */
+    @Nullable
+    @Getter
+    @Setter
+    private volatile DisguiseIdentity disguise;
+
+    /**
      * Constructs new instance with given bukkit player
      *
      * @param   platform
@@ -67,9 +77,35 @@ public class BukkitTabPlayer extends BackendTabPlayer {
         return getPlayer().hasPermission(permission);
     }
 
+    /**
+     * Ping shown everywhere TAB displays it: the disguise's fake ping while disguised, real ping otherwise.
+     *
+     * @return  Ping to show
+     */
     @Override
     public int getPing() {
+        DisguiseIdentity shown = disguise;
+        return shown != null ? shown.ping(System.currentTimeMillis()) : getRealPing();
+    }
+
+    /**
+     * Returns the ping the server measured, even while disguised.
+     *
+     * @return  Real ping
+     */
+    public int getRealPing() {
         return getPlatform().getServerVersionInfo().getImplementationProvider().getPing(this);
+    }
+
+    /**
+     * Returns the name to show for this player: the disguise name while disguised, real name otherwise.
+     *
+     * @return  Name to show
+     */
+    @NotNull
+    public String getShownName() {
+        DisguiseIdentity shown = disguise;
+        return shown != null ? shown.getName() : getName();
     }
 
     @Override
@@ -131,6 +167,10 @@ public class BukkitTabPlayer extends BackendTabPlayer {
     @Override
     @NotNull
     public String getDisplayName() {
-        return getPlayer().getDisplayName();
+        DisguiseIdentity shown = disguise;
+        String displayName = getPlayer().getDisplayName();
+        // A display name still carrying the real name would unmask the disguise
+        if (shown != null && displayName.contains(getName())) return displayName.replace(getName(), shown.getName());
+        return displayName;
     }
 }

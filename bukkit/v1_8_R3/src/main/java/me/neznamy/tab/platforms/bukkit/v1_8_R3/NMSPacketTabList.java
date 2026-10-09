@@ -5,6 +5,7 @@ import com.mojang.authlib.properties.Property;
 import lombok.NonNull;
 import lombok.SneakyThrows;
 import me.neznamy.tab.platforms.bukkit.BukkitTabPlayer;
+import me.neznamy.tab.platforms.bukkit.features.PhoenixDisguiseTracker;
 import me.neznamy.tab.shared.TAB;
 import me.neznamy.tab.shared.chat.component.TabComponent;
 import me.neznamy.tab.shared.platform.TabList;
@@ -152,6 +153,13 @@ public class NMSPacketTabList extends TrackedTabList<BukkitTabPlayer> {
                 if (getForcedLatency() != null) {
                     latency = getForcedLatency();
                     rewriteEntry = rewritePacket = true;
+                } else {
+                    // A disguised player's real ping would help unmask them
+                    int shown = PhoenixDisguiseTracker.shownLatency(id, latency);
+                    if (shown != latency) {
+                        latency = shown;
+                        rewriteEntry = rewritePacket = true;
+                    }
                 }
             }
             updatedList.add(rewriteEntry ? info.new PlayerInfoData(

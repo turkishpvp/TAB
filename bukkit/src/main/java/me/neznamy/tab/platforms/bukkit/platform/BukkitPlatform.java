@@ -10,6 +10,7 @@ import me.neznamy.tab.platforms.bukkit.bossbar.BukkitBossBar;
 import me.neznamy.tab.platforms.bukkit.bossbar.ViaBossBar;
 import me.neznamy.tab.platforms.bukkit.features.BukkitTabExpansion;
 import me.neznamy.tab.platforms.bukkit.features.PerWorldPlayerList;
+import me.neznamy.tab.platforms.bukkit.features.PhoenixDisguiseTracker;
 import me.neznamy.tab.platforms.bukkit.hook.BukkitPremiumVanishHook;
 import me.neznamy.tab.shared.*;
 import me.neznamy.tab.shared.backend.BackendPlatform;
@@ -141,6 +142,9 @@ public class BukkitPlatform implements BackendPlatform {
             }
         }
         BackendPlatform.super.registerPlaceholders();
+        // After the defaults: takes over %player%, %player_name% and the ping placeholders for disguised players.
+        // Runs on every load, while the fresh feature manager is still empty.
+        TAB.getInstance().getFeatureManager().registerFeature("PhoenixDisguise", new PhoenixDisguiseTracker(placeholderAPI));
     }
 
     @Override
