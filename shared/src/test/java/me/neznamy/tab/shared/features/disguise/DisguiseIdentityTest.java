@@ -52,4 +52,12 @@ class DisguiseIdentityTest {
         assertTrue(bases.size() > 10, "different disguises must get different pings");
         assertNotEquals(new DisguiseIdentity(REAL, "Kartal", DISGUISE), new DisguiseIdentity(REAL, "Sahin", DISGUISE));
     }
+
+    @Test
+    void showsNameIgnoresColorCodes() {
+        assertTrue(DisguiseIdentity.showsName("§f§cKartal", "Kartal"));
+        assertTrue(DisguiseIdentity.showsName("§c❤ §7§oKar§ltal §8[TPVP]", "Kartal"));
+        assertFalse(DisguiseIdentity.showsName("§f§cRealName", "Kartal"), "previous identity is stale");
+        assertFalse(DisguiseIdentity.showsName("§fkartal", "Kartal"), "names are case-sensitive");
+    }
 }

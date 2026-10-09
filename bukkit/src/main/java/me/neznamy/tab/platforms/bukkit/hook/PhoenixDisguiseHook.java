@@ -25,10 +25,14 @@ public class PhoenixDisguiseHook {
     private final Method getDisguiseName;
     private final Method getDisguiseUuid;
 
+    /** Class loader Phoenix's classes were found in */
+    @NotNull private final ClassLoader classLoader;
+
     /** Set after the first failed call, so a broken Phoenix does not spam the console */
     private volatile boolean broken;
 
     private PhoenixDisguiseHook(@NotNull ClassLoader loader) throws ReflectiveOperationException {
+        classLoader = loader;
         Class<?> phoenix = Class.forName("xyz.refinedev.phoenix.Phoenix", false, loader);
         Class<?> profileHandler = Class.forName("xyz.refinedev.phoenix.handler.IProfileHandler", false, loader);
         Class<?> profile = Class.forName("xyz.refinedev.phoenix.profile.IProfile", false, loader);
@@ -70,6 +74,16 @@ public class PhoenixDisguiseHook {
         } catch (ReflectiveOperationException | LinkageError e) {
             return null;
         }
+    }
+
+    /**
+     * Returns the class loader Phoenix's classes come from (for listening to its events).
+     *
+     * @return  Phoenix's class loader
+     */
+    @NotNull
+    public ClassLoader getClassLoader() {
+        return classLoader;
     }
 
     /**

@@ -7,6 +7,7 @@ import org.jetbrains.annotations.Nullable;
 
 import java.util.Locale;
 import java.util.UUID;
+import java.util.regex.Pattern;
 
 /**
  * What TAB shows for a disguised player instead of the real identity: the disguise name and a ping
@@ -18,6 +19,9 @@ import java.util.UUID;
 @Getter
 @EqualsAndHashCode
 public final class DisguiseIdentity {
+
+    /** A legacy color or format code (section sign and one character) */
+    private static final Pattern LEGACY_CODE = Pattern.compile("§.");
 
     /** Lowest base ping a disguise can get */
     public static final int MIN_BASE_PING = 25;
@@ -107,6 +111,19 @@ public final class DisguiseIdentity {
      *          Value to mix
      * @return  Mixed value
      */
+    /**
+     * Tells whether a legacy formatted text shows the given name (color codes ignored, case-sensitive).
+     *
+     * @param   legacyText
+     *          Text with legacy color codes
+     * @param   name
+     *          Name to look for
+     * @return  {@code true} if the text contains the name
+     */
+    public static boolean showsName(@NotNull String legacyText, @NotNull String name) {
+        return LEGACY_CODE.matcher(legacyText).replaceAll("").contains(name);
+    }
+
     private static long mix(long value) {
         long z = value + 0x9E3779B97F4A7C15L;
         z = (z ^ (z >>> 30)) * 0xBF58476D1CE4E5B9L;

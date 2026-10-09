@@ -131,13 +131,26 @@ public class NMSPacketTabList extends TrackedTabList<BukkitTabPlayer> {
             UUID id = profile.getId();
             IChatBaseComponent displayName = nmsData.d();
             int latency = nmsData.b();
-            int gameMode = nmsData.c().getId();
+            // Plugins building remove/update packets themselves (Phoenix, vanish) may leave the gamemode out
+            EnumGamemode originalGameMode = nmsData.c();
+            int gameMode = originalGameMode == null ? -1 : originalGameMode.getId();
             if (action == EnumPlayerInfoAction.ADD_PLAYER) {
                 // Before the display name lookup: may move a disguised player to this UUID
                 TAB.getInstance().getFeatureManager().onEntryAdd(player, id, profile.getName());
             }
             if (action == EnumPlayerInfoAction.UPDATE_DISPLAY_NAME || action == EnumPlayerInfoAction.ADD_PLAYER) {
                 TabComponent forcedDisplayName = getForcedDisplayNames().get(id);
+                if (action == EnumPlayerInfoAction.ADD_PLAYER && forcedDisplayName != null
+                        && PhoenixDisguiseTracker.isStaleDisplayName(id, profile.getName(), forcedDisplayName)) {
+                    // Phoenix re-adds the entry under a new identity: the remembered display name still shows
+                    // the previous (possibly real) name. Show the bare profile name until TAB sends the new one.
+                    forcedDisplayName = null;
+                    if (displayName != null) {
+                        displayName = null;
+                        rewriteEntry = rewritePacket = true;
+                    }
+                    PhoenixDisguiseTracker.checkSoon();
+                }
                 if (forcedDisplayName != null && forcedDisplayName.convert() != displayName) {
                     displayName = forcedDisplayName.convert();
                     rewriteEntry = rewritePacket = true;
@@ -165,7 +178,7 @@ public class NMSPacketTabList extends TrackedTabList<BukkitTabPlayer> {
             updatedList.add(rewriteEntry ? info.new PlayerInfoData(
                     profile,
                     latency,
-                    EnumGamemode.getById(gameMode),
+                    gameMode == -1 ? originalGameMode : EnumGamemode.getById(gameMode),
                     displayName
             ) : nmsData);
         }
